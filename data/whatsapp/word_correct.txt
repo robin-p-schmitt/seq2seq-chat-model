@@ -1,0 +1,7 @@
+{
+    "okok": "ok",
+    "oke": "ok",
+    "okay": "ok",
+    "helo": "halo",
+    "dz": "du"
+}
