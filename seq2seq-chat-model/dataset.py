@@ -5,6 +5,7 @@ import re
 from tqdm import tqdm
 import nltk
 import gensim
+import os
 
 
 class ChatDataset(Dataset):
@@ -47,28 +48,28 @@ class ChatDataset(Dataset):
         self.embedding_size = embedding_size
 
         print("READING TXT FILES")
-        data = self.get_data(directory)
+        self.data = self._get_data(directory)
         print("OBTAINING EMBEDDINGS AND VOCABULARY")
-        self.vocab, self.word2vec = self.get_vocab(data)
+        self.vocab, self.word2vec, self.sentences = self._get_vocab(self.data)
         self.inverse_vocab = {val: key for key, val in self.vocab.items()}
         print("DATA LOADED")
 
-    def __get_data(self, directory):
+    def _get_data(self, directory):
         """Get tuples of questions and answers from directory of txt
         files."""
         data = []
         for filename in tqdm(list(Path(directory).glob("*.txt"))):
-            sequences = self.get_sequences(filename)
+            sequences = self._get_sequences(filename)
             data += sequences
 
         return data
 
-    def __get_sequences(self, filename):
+    def _get_sequences(self, filename):
         """Get tuples of questions and answers from specific txt file."""
         sequences = []
 
         with open(filename, "r", encoding="utf-8") as f:
-            for line in f:
+            for line in tqdm(f):
                 # each line consists of
                 # [question_1, ...]\t[answer_1, ...]\n
                 split = re.findall("(.+?)\t(.+?)\n", line)
@@ -83,15 +84,32 @@ class ChatDataset(Dataset):
                 )
                 # tokenize each message, e.g. question_group = [["hey"],
                 # ["how", "are", "you", "?"]]
-                question_group, answer_group = [
-                    nltk.word_tokenize(question) for question in question_group
-                ], [nltk.word_tokenize(answer) for answer in answer_group]
+                question_group = [
+                    [
+                        self._replace_digits(token)
+                        for token in nltk.word_tokenize(question)
+                    ]
+                    for question in question_group
+                ]
+                answer_group = [
+                    [
+                        self._replace_digits(token)
+                        for token in nltk.word_tokenize(answer)
+                    ]
+                    for answer in answer_group
+                ]
 
                 sequences.append((question_group, answer_group))
 
         return sequences
 
-    def __get_vocab(self, data):
+    def _replace_digits(self, txt):
+        if re.fullmatch(r"\d+", txt):
+            return "<number>"
+
+        return txt
+
+    def _get_vocab(self, data):
         # unzip to obtain question groups and answer groups
         question_groups, answer_groups = list(zip(*data))
 
@@ -107,14 +125,8 @@ class ChatDataset(Dataset):
         ]
         sentences = questions + answers
 
-        # train word2vec model on sentences and remove infrequent words
-        word2vec = gensim.models.Word2Vec(
-            sentences,
-            iter=100,
-            window=8,
-            size=self.embedding_size,
-            min_count=5,
-        )
+        word2vec = gensim.models.Word2Vec(min_count = 5, size = 128)
+        word2vec.build_vocab(sentences)
 
         # obtain vocabulary including special tokens
         vocab = {
@@ -127,7 +139,7 @@ class ChatDataset(Dataset):
         vocab["<stop>"] = 3
         vocab["<new>"] = 4
 
-        return vocab, word2vec
+        return vocab, word2vec, sentences
 
     def get_embeddings(self):
         """Return the pretrained embeddings together with 0-initialized
@@ -146,6 +158,7 @@ class ChatDataset(Dataset):
 
     def __getitem__(self, index):
         """Obtain tuple at given index"""
+        # print(self.data[index])
         question_group, answer_group = self.data[index]
         # link together sequences of one group with the <new> token e.g.
         # question_group = [["hey"], ["how", "are", "you", "?"]] ->
