@@ -6,6 +6,7 @@ import os
 from tqdm import tqdm
 from itertools import groupby
 from operator import itemgetter
+import nltk
 
 
 def prepare_whatsapp_data(path_to_chats, new_dir):
@@ -136,6 +137,7 @@ def prepare_whatsapp_data(path_to_chats, new_dir):
                 [msg for msg in group if not msg in system_msgs]
                 for group in messages
             ]
+
             # always write two consecutive messages separated by a tab into the file
             for i in range(len(messages) - 1):
                 if messages[i] and messages[i + 1]:
@@ -159,6 +161,7 @@ def prepare_cornell_movie_corpus(path_to_lines, path_to_dialogues, new_dir):
             line_id, _, _, _, text = line.split("+++$+++")
             line_id = line_id.strip()
             text = text.lower().strip()
+            text = re.sub(r"([a-z]+)-([a-z]+)", r"\1 \2", text)
             movie_lines[line_id] = text
 
     dialogues = []
@@ -173,7 +176,7 @@ def prepare_cornell_movie_corpus(path_to_lines, path_to_dialogues, new_dir):
             dialogues.append(dialogue)
 
     # create new path for edited movie dialogues
-    new_file_path = os.path.join(new_dir, "movie-corpus-edited.txt")
+    new_file_path = os.path.join(new_dir, "movie-corpus.txt")
 
     # write the dialogues to the new file by separating
     # answers and questions with a tab
