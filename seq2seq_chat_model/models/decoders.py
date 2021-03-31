@@ -30,7 +30,7 @@ class LSTMAttentionDecoder(nn.Module):
                 output_size, hidden_size, padding_idx=0
             )
         else:
-            self.embedding = nn.Embedding.from_pretrained(pretrained_emb)
+            self.embedding = pretrained_emb
 
         # the weights for the Bahdanau attention mechanism i.e.
         # energy(s_t', h_t) = comb_attn_w * (enc_attn_w * h_t +

@@ -4,7 +4,7 @@ import torch.nn as nn
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-class Encoder(nn.Module):
+class LSTMEncoder(nn.Module):
     """Encoder for a Seq2Seq network.
 
     Takes a sequence of word indices as input and obtains the
@@ -15,7 +15,7 @@ class Encoder(nn.Module):
     def __init__(
         self, input_size, hidden_size, num_layers, pretrained_emb=None
     ):
-        super(Encoder, self).__init__()
+        super(LSTMEncoder, self).__init__()
 
         self.hidden_size = hidden_size
         self.num_layers = num_layers
@@ -26,7 +26,7 @@ class Encoder(nn.Module):
                 input_size, hidden_size, padding_idx=0
             )
         else:
-            self.embedding = nn.Embedding.from_pretrained(pretrained_emb)
+            self.embedding = pretrained_emb
 
         # bi-LSTM network with num_layers layers and dropout
         self.lstm = nn.LSTM(

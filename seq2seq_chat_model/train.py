@@ -1,6 +1,13 @@
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from seq2seq_chat_model.dataset import ChatDataset
+from seq2seq_chat_model.models.encoders import LSTMEncoder
+from seq2seq_chat_model.models.decoders import LSTMAttentionDecoder
+import os
+from pathlib import Path
+import gensim
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -89,7 +96,3 @@ def train(encoder, decoder, dataset, epochs=500, batch_size=512):
                 / ((len(dataset) // batch_size) * dataset.max_length),
             )
         )
-
-    # save the models
-    torch.save(encoder.state_dict(), "encoder.pt")
-    torch.save(decoder.state_dict(), "decoder.pt")
