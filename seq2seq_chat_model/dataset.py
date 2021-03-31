@@ -55,7 +55,7 @@ class ChatDataset(Dataset):
 
         print("READING TXT FILES")
         self.data = self._get_data(file_paths)
-        print("OBTAINING EMBEDDINGS AND VOCABULARY")
+        print("OBTAINING VOCABULARY")
         self.vocab, self.word2vec, self.sentences = self._get_vocab(self.data)
         self.inverse_vocab = {val: key for key, val in self.vocab.items()}
         print("DATA LOADED")
@@ -164,9 +164,10 @@ class ChatDataset(Dataset):
     def get_embeddings(self):
         """Return the pretrained embeddings together with 0-initialized
         embeddings for the 5 special tokens"""
+        size = self.word2vec.wv.vectors.shape[-1]
         embeddings = torch.cat(
             (
-                torch.zeros((5, self.embedding_size)),
+                torch.zeros((5, size)),
                 torch.FloatTensor(self.word2vec.wv.vectors),
             )
         )

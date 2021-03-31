@@ -8,8 +8,10 @@ from seq2seq_chat_model.models.decoders import LSTMAttentionDecoder
 import os
 from pathlib import Path
 import gensim
+import numpy as np
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print("Using " + str(device) + " as device.")
 
 
 def train(encoder, decoder, dataset, epochs=500, batch_size=512):
@@ -95,4 +97,103 @@ def train(encoder, decoder, dataset, epochs=500, batch_size=512):
                 running_loss
                 / ((len(dataset) // batch_size) * dataset.max_length),
             )
+        )
+
+
+if __name__ == "__main__":
+    # init variables
+    data_path = os.path.join("data", "training")
+    hidden_size = 128
+    learning_setups = {}
+
+    # init movie dataset
+    mov_path = Path(data_path).glob("movie-corpus.txt")
+    mov_dataset = ChatDataset(mov_path, max_length=15, min_count=5)
+
+    # pretrain movie embeddings
+    print("Train movie embeddings")
+    word2vec = gensim.models.Word2Vec(
+        mov_dataset.sentences,
+        size=hidden_size,
+        window=7,
+        min_count=mov_dataset.min_count,
+        negative=5,
+        iter=10,
+    )
+    # load pretrained embeddings into dataset and create torch embedding layer
+    print("Load movie embeddings")
+    mov_dataset.load_word2vec(word2vec)
+    mov_embedding = nn.Embedding.from_pretrained(
+        (mov_dataset.get_embeddings())
+    ).to(device)
+
+    # define encoder and decoder for movie dialogue task
+    encoder = LSTMEncoder(
+        mov_embedding.num_embeddings, hidden_size, 5, mov_embedding
+    ).to(device)
+    decoder = LSTMAttentionDecoder(
+        hidden_size, mov_embedding.num_embeddings, 4, mov_embedding
+    ).to(device)
+
+    # add movie setup to setups
+    learning_setups["movie"] = {
+        "embedding": mov_embedding,
+        "projection": decoder.projection,
+        "dataset": mov_dataset,
+    }
+
+    # init whatsapp dataset
+    wa_paths = Path(data_path).glob("whatsapp*.txt")
+    wa_dataset = ChatDataset(wa_paths, max_length=15, min_count=5)
+
+    # pretrain whatsapp embeddings
+    print("Train whatsapp embeddings")
+    word2vec = gensim.models.Word2Vec(
+        wa_dataset.sentences,
+        size=128,
+        window=7,
+        min_count=wa_dataset.min_count,
+        negative=5,
+        iter=30,
+    )
+
+    # load pretrained embeddings into dataset and create torch embedding layer
+    print("Load whatsapp embeddings")
+    wa_dataset.load_word2vec(word2vec)
+    wa_embedding = nn.Embedding.from_pretrained((wa_dataset.get_embeddings())).to(device)
+
+    # add whatsapp setup
+    learning_setups["whatsapp"] = {
+        "embedding": wa_embedding,
+        "projection": nn.Linear(hidden_size, wa_embedding.num_embeddings).to(device),
+        "dataset": wa_dataset,
+    }
+
+    print("Start Training")
+    for i in range(20):
+        # randomly select one of the tasks
+        print("Iteration " + str(i))
+        setup = np.random.choice(list(learning_setups.values()), 1)[0]
+
+        # change embedding and projection layers to selected task
+        # the remaining paramerters are shared across tasks
+        encoder.embedding = setup["embedding"]
+        decoder.embedding = setup["embedding"]
+        decoder.projection = setup["projection"]
+
+        #train the current setup for 5 epochs
+        train(encoder, decoder, setup["dataset"], epochs=5, batch_size=512)
+
+        #save models
+        torch.save(
+            encoder.state_dict(),
+            os.path.join(
+                "seq2seq_chat_model", "models", "saved", "encoder.pt"
+            ),
+        )
+        torch.save(
+            decoder.state_dict(),
+            os.path.join(
+                "seq2seq_chat_model", "models", "saved", "decoder.pt"
+            ),
         )

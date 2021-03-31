@@ -59,7 +59,7 @@ class LSTMAttentionDecoder(nn.Module):
 
         # last layer which projects decoder state to the size of the
         # output vocabulary
-        self.linear = nn.Linear(hidden_size, output_size)
+        self.projection = nn.Linear(hidden_size, output_size)
 
     def forward(self, y, enc_outputs, enc_hidden, hidden, cell):
         """Forward pass through the decoder.
@@ -102,7 +102,7 @@ class LSTMAttentionDecoder(nn.Module):
         # apply lstm network
         out, (hidden, cell) = self.lstm(combined, (hidden + enc_hidden, cell))
         # project to output vocabulary
-        out = self.linear(out)
+        out = self.projection(out)
         # remove seq_len dimension
         out = torch.squeeze(out, dim=1)
 
