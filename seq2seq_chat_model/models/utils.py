@@ -2,27 +2,78 @@ import torch
 import torch.nn.functional as F
 import operator
 import numpy as np
+import nltk
+from seq2seq_chat_model.data.prepare_data import replace_digits, replace_multichars
+from typing import List
+from seq2seq_chat_model.dataset import ChatDataset
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def gen_input(message: str, dataset):
-    """Generate encoder input from message."""
-    tokens = dataset.get_tokens(message)
-    tokens = [
-        dataset.vocab[token]
-        if token in dataset.vocab
-        else dataset.vocab["<unk>"]
-        for token in tokens
-    ]
-    inp = (
-        tokens[: dataset.max_length - 1]
-        + [dataset.vocab["<new>"]]
-        + [dataset.vocab["<pad>"]]
-        * max(dataset.max_length - len(tokens) - 1, 0)
+def tokenize_message(message: str):
+    """Clean message and return list of list of strings.
+
+    Splits the message by the special <new> token, applies preprocessing
+    steps to the message and tokenizes it into words.
+
+    Args: 
+        message (str): the message to tokenize 
+    Returns: 
+        group (List[List[str]]) : a list of tokenized messages
+    """
+    message = replace_multichars(message)
+    group = message.split("<new>")
+    group = [nltk.word_tokenize(msg) for msg in group]
+    group = [[replace_digits(token) for token in msg] for msg in group]
+
+    return group
+
+def get_encoder_input(question_group: List[List[str]], dataset: ChatDataset):
+    # link together sequences of one group with the <new> token e.g.
+    # question_group = [["hey"], ["how", "are", "you", "?"]] ->
+    # question = ["hey", "<new>", "how", "are", "you", "?"]
+    question = [token for seq in question_group for token in seq + ["<new>"]]
+    # replace every token with its unique index or with the <unk> index
+    # if it is not in the vocabulary
+    question = [
+            dataset.vocab[token]
+            if token in dataset.vocab
+            else dataset.vocab["<unk>"]
+            for token in question
+        ]
+
+    # either cut off long sequences or pad short sequences so that
+    # every sequence has length max_length
+    question = question[:dataset.max_length] + [dataset.vocab["<pad>"]] * max(
+        dataset.max_length - len(question), 0
     )
 
-    return torch.tensor(inp)
+    return torch.tensor(question)
+
+def get_decoder_input(answer_group: List[List[str]], dataset: ChatDataset):
+    # link together sequences of one group with the <new> token e.g.
+    # question_group = [["hey"], ["how", "are", "you", "?"]] ->
+    # question = ["hey", "<new>", "how", "are", "you", "?"]
+    answer = [token for seq in answer_group for token in seq + ["<new>"]]
+    # replace every token with its unique index or with the <unk> index
+    # if it is not in the vocabulary
+    answer = [
+            dataset.vocab[token]
+            if token in dataset.vocab
+            else dataset.vocab["<unk>"]
+            for token in answer
+        ]
+
+    # additionally, add sos and eos tokens to start and end of the
+    # answer
+    answer = (
+        [dataset.vocab["<start>"]]
+        + answer[:dataset.max_length - 2]
+        + [dataset.vocab["<stop>"]]
+        + [dataset.vocab["<pad>"]] * max(dataset.max_length - len(answer) - 2, 0)
+    )
+
+    return torch.tensor(answer)
 
 
 def decode_beam(inp, encoder, decoder, dataset, beam_width):

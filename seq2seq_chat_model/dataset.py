@@ -6,6 +6,8 @@ from tqdm import tqdm
 import nltk
 import gensim
 import os
+from seq2seq_chat_model.data.prepare_data import replace_digits
+from seq2seq_chat_model.models.utils import get_encoder_input, get_decoder_input
 
 
 class ChatDataset(Dataset):
@@ -92,14 +94,14 @@ class ChatDataset(Dataset):
                 # ["how", "are", "you", "?"]]
                 question_group = [
                     [
-                        self._replace_digits(token)
+                        replace_digits(token)
                         for token in nltk.word_tokenize(question)
                     ]
                     for question in question_group
                 ]
                 answer_group = [
                     [
-                        self._replace_digits(token)
+                        replace_digits(token)
                         for token in nltk.word_tokenize(answer)
                     ]
                     for answer in answer_group
@@ -114,12 +116,6 @@ class ChatDataset(Dataset):
                 sequences.append((question_group, answer_group))
 
         return sequences
-
-    def _replace_digits(self, txt):
-        if re.search(r"\d+", txt):
-            return "<number>"
-
-        return txt
 
     def _get_vocab(self, data):
         # unzip to obtain question groups and answer groups
@@ -187,37 +183,38 @@ class ChatDataset(Dataset):
         """Obtain tuple at given index"""
         # print(self.data[index])
         question_group, answer_group = self.data[index]
-        # link together sequences of one group with the <new> token e.g.
-        # question_group = [["hey"], ["how", "are", "you", "?"]] ->
-        # question = ["hey", "<new>", "how", "are", "you", "?"]
-        question, answer = [
-            [token for seq in seq_group for token in seq + ["<new>"]]
-            for seq_group in [question_group, answer_group]
-        ]
-        # replace every token with its unique index or with the <unk> index
-        # if it is not in the vocabulary
-        question, answer = [
-            [
-                self.vocab[token]
-                if token in self.vocab
-                else self.vocab["<unk>"]
-                for token in seq
-            ]
-            for seq in [question, answer]
-        ]
+        
+        question = get_encoder_input(question_group, self)
+        answer = get_decoder_input(answer_group, self)
+        
+        # question, answer = [
+        #     [token for seq in seq_group for token in seq + ["<new>"]]
+        #     for seq_group in [question_group, answer_group]
+        # ]
+        # # replace every token with its unique index or with the <unk> index
+        # # if it is not in the vocabulary
+        # question, answer = [
+        #     [
+        #         self.vocab[token]
+        #         if token in self.vocab
+        #         else self.vocab["<unk>"]
+        #         for token in seq
+        #     ]
+        #     for seq in [question, answer]
+        # ]
 
-        # either cut off long sequences or pad short sequences so that
-        # every sequence has length max_length
-        question = question[: self.max_length] + [self.vocab["<pad>"]] * max(
-            self.max_length - len(question), 0
-        )
-        # additionally, add sos and eos tokens to start and end of the
-        # answer
-        answer = (
-            [self.vocab["<start>"]]
-            + answer[: self.max_length - 2]
-            + [self.vocab["<stop>"]]
-            + [self.vocab["<pad>"]] * max(self.max_length - len(answer) - 2, 0)
-        )
+        # # either cut off long sequences or pad short sequences so that
+        # # every sequence has length max_length
+        # question = question[: self.max_length] + [self.vocab["<pad>"]] * max(
+        #     self.max_length - len(question), 0
+        # )
+        # # additionally, add sos and eos tokens to start and end of the
+        # # answer
+        # answer = (
+        #     [self.vocab["<start>"]]
+        #     + answer[: self.max_length - 2]
+        #     + [self.vocab["<stop>"]]
+        #     + [self.vocab["<pad>"]] * max(self.max_length - len(answer) - 2, 0)
+        # )
 
         return (torch.tensor(question), torch.tensor(answer))
