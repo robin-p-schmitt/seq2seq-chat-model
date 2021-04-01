@@ -105,6 +105,12 @@ class ChatDataset(Dataset):
                     for answer in answer_group
                 ]
 
+                # remove sequences which exceed the max length
+                if len([token for question in question_group for token in question]) + len(question_group) > self.max_length:
+                    continue
+                if len([token for answer in answer_group for token in answer]) + len(answer_group) > self.max_length:
+                    continue
+
                 sequences.append((question_group, answer_group))
 
         return sequences
