@@ -194,20 +194,22 @@ def prepare_cornell_movie_corpus(path_to_lines, path_to_dialogues, new_dir):
 
 
 if __name__ == "__main__":
+    # data directory
+    data_dir = os.path.join("seq2seq_chat_model", "data")
     # new dir to save the prepared files in
-    new_dir = os.path.join("data", "training")
+    new_dir = os.path.join(data_dir, "training")
     if not os.path.exists(new_dir):
         os.mkdir(new_dir)
 
     # prepare movie corpus
     path_to_lines = os.path.join(
-        "data", "cornell-movie-corpus", "movie_lines.txt"
+        data_dir, "cornell-movie-corpus", "movie_lines.txt"
     )
     path_to_dialogues = os.path.join(
-        "data", "cornell-movie-corpus", "movie_conversations.txt"
+        data_dir, "cornell-movie-corpus", "movie_conversations.txt"
     )
     prepare_cornell_movie_corpus(path_to_lines, path_to_dialogues, new_dir)
 
     # prepare whatsapp chats
-    path_to_chats = os.path.join("data", "whatsapp")
+    path_to_chats = os.path.join(data_dir, "whatsapp")
     prepare_whatsapp_data(path_to_chats, new_dir)

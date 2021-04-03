@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import gensim
 import numpy as np
+import logging
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print("Using " + str(device) + " as device.")
@@ -98,13 +99,25 @@ def train(encoder, decoder, dataset, epochs=500, batch_size=512):
                 / ((len(dataset) // batch_size) * dataset.max_length),
             )
         )
+        logging.info("Epoch {} - Loss: {}".format(
+                epoch,
+                running_loss
+                / ((len(dataset) // batch_size) * dataset.max_length),
+            ))
 
 
 if __name__ == "__main__":
     # init variables
-    data_path = os.path.join("data", "training")
+    data_path = os.path.join("seq2seq_chat_model", "data", "training")
+    save_dest = os.path.join(
+                "seq2seq_chat_model", "models", "saved"
+            )
+    if not os.path.exists(save_dest):
+        os.mkdir(save_dest)
+    log_path = os.path.join(save_dest, "train_log.log")
     hidden_size = 128
     learning_setups = {}
+    logging.basicConfig(filename=log_path, level=logging.INFO)
 
     # init movie dataset
     print("INIT MOVIE DATASET")
@@ -173,16 +186,13 @@ if __name__ == "__main__":
         "dataset": wa_dataset,
     }
 
-    save_dest = os.path.join(
-                "seq2seq_chat_model", "models", "saved"
-            )
-
     torch.save(learning_setups["whatsapp"], os.path.join(save_dest, "setups.pt"))
 
     print("Start Multitask Training")
-    for i in range(100):
+    for i in range(200):
         # randomly select one of the tasks
         print("Iteration " + str(i))
+        logging.info("Iteration " + str(i))
         setup = np.random.choice(list(learning_setups.values()), 1)[0]
 
         # change embedding and projection layers to selected task
@@ -218,7 +228,7 @@ if __name__ == "__main__":
     decoder.projection = setup["projection"]
 
     # fine-tuning for target task (whatsapp)
-    train(encoder, decoder, setup["dataset"], epochs=50, batch_size=512)
+    train(encoder, decoder, setup["dataset"], epochs=150, batch_size=512)
 
     #save models
     torch.save(

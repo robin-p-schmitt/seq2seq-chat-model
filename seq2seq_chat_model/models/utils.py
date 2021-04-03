@@ -5,7 +5,6 @@ import numpy as np
 import nltk
 from seq2seq_chat_model.data.prepare_data import replace_digits, replace_multichars
 from typing import List
-from seq2seq_chat_model.dataset import ChatDataset
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -28,7 +27,7 @@ def tokenize_message(message: str):
 
     return group
 
-def get_encoder_input(question_group: List[List[str]], dataset: ChatDataset):
+def get_encoder_input(question_group: List[List[str]], dataset):
     # link together sequences of one group with the <new> token e.g.
     # question_group = [["hey"], ["how", "are", "you", "?"]] ->
     # question = ["hey", "<new>", "how", "are", "you", "?"]
@@ -50,7 +49,7 @@ def get_encoder_input(question_group: List[List[str]], dataset: ChatDataset):
 
     return torch.tensor(question)
 
-def get_decoder_input(answer_group: List[List[str]], dataset: ChatDataset):
+def get_decoder_input(answer_group: List[List[str]], dataset):
     # link together sequences of one group with the <new> token e.g.
     # question_group = [["hey"], ["how", "are", "you", "?"]] ->
     # question = ["hey", "<new>", "how", "are", "you", "?"]
