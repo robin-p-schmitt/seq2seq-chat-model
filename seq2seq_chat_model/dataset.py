@@ -7,7 +7,10 @@ import nltk
 import gensim
 import os
 from seq2seq_chat_model.data.prepare_data import replace_digits
-from seq2seq_chat_model.models.utils import get_encoder_input, get_decoder_input
+from seq2seq_chat_model.models.utils import (
+    get_encoder_input,
+    get_decoder_input,
+)
 
 
 class ChatDataset(Dataset):
@@ -108,9 +111,23 @@ class ChatDataset(Dataset):
                 ]
 
                 # remove sequences which exceed the max length
-                if len([token for question in question_group for token in question]) + len(question_group) > self.max_length:
+                if (
+                    len(
+                        [
+                            token
+                            for question in question_group
+                            for token in question
+                        ]
+                    )
+                    + len(question_group)
+                    > self.max_length
+                ):
                     continue
-                if len([token for answer in answer_group for token in answer]) + len(answer_group) > self.max_length:
+                if (
+                    len([token for answer in answer_group for token in answer])
+                    + len(answer_group)
+                    > self.max_length
+                ):
                     continue
 
                 sequences.append((question_group, answer_group))
@@ -183,10 +200,10 @@ class ChatDataset(Dataset):
         """Obtain tuple at given index"""
         # print(self.data[index])
         question_group, answer_group = self.data[index]
-        
+
         question = get_encoder_input(question_group, self)
         answer = get_decoder_input(answer_group, self)
-        
+
         # question, answer = [
         #     [token for seq in seq_group for token in seq + ["<new>"]]
         #     for seq_group in [question_group, answer_group]

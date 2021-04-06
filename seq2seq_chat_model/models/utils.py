@@ -3,7 +3,10 @@ import torch.nn.functional as F
 import operator
 import numpy as np
 import nltk
-from seq2seq_chat_model.data.prepare_data import replace_digits, replace_multichars
+from seq2seq_chat_model.data.prepare_data import (
+    replace_digits,
+    replace_multichars,
+)
 from typing import List
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -15,9 +18,9 @@ def tokenize_message(message: str):
     Splits the message by the special <new> token, applies preprocessing
     steps to the message and tokenizes it into words.
 
-    Args: 
-        message (str): the message to tokenize 
-    Returns: 
+    Args:
+        message (str): the message to tokenize
+    Returns:
         group (List[List[str]]) : a list of tokenized messages
     """
     message = replace_multichars(message)
@@ -27,6 +30,7 @@ def tokenize_message(message: str):
 
     return group
 
+
 def get_encoder_input(question_group: List[List[str]], dataset):
     # link together sequences of one group with the <new> token e.g.
     # question_group = [["hey"], ["how", "are", "you", "?"]] ->
@@ -35,19 +39,20 @@ def get_encoder_input(question_group: List[List[str]], dataset):
     # replace every token with its unique index or with the <unk> index
     # if it is not in the vocabulary
     question = [
-            dataset.vocab[token]
-            if token in dataset.vocab
-            else dataset.vocab["<unk>"]
-            for token in question
-        ]
+        dataset.vocab[token]
+        if token in dataset.vocab
+        else dataset.vocab["<unk>"]
+        for token in question
+    ]
 
     # either cut off long sequences or pad short sequences so that
     # every sequence has length max_length
-    question = question[:dataset.max_length] + [dataset.vocab["<pad>"]] * max(
+    question = question[: dataset.max_length] + [dataset.vocab["<pad>"]] * max(
         dataset.max_length - len(question), 0
     )
 
     return torch.tensor(question)
+
 
 def get_decoder_input(answer_group: List[List[str]], dataset):
     # link together sequences of one group with the <new> token e.g.
@@ -57,19 +62,20 @@ def get_decoder_input(answer_group: List[List[str]], dataset):
     # replace every token with its unique index or with the <unk> index
     # if it is not in the vocabulary
     answer = [
-            dataset.vocab[token]
-            if token in dataset.vocab
-            else dataset.vocab["<unk>"]
-            for token in answer
-        ]
+        dataset.vocab[token]
+        if token in dataset.vocab
+        else dataset.vocab["<unk>"]
+        for token in answer
+    ]
 
     # additionally, add sos and eos tokens to start and end of the
     # answer
     answer = (
         [dataset.vocab["<start>"]]
-        + answer[:dataset.max_length - 2]
+        + answer[: dataset.max_length - 2]
         + [dataset.vocab["<stop>"]]
-        + [dataset.vocab["<pad>"]] * max(dataset.max_length - len(answer) - 2, 0)
+        + [dataset.vocab["<pad>"]]
+        * max(dataset.max_length - len(answer) - 2, 0)
     )
 
     return torch.tensor(answer)
@@ -82,6 +88,7 @@ def decode_beam(inp, encoder, decoder, dataset, beam_width):
     decoder.eval()
 
     hidden_size = encoder.hidden_size
+    num_enc_lay = encoder.num_layers
     batch_size = 1
 
     top_picks = []
@@ -98,10 +105,10 @@ def decode_beam(inp, encoder, decoder, dataset, beam_width):
         )
 
         # prepare hidden encoder state for decoder
-        enc_hidden = enc_hidden.view(3, 2, batch_size, hidden_size)
+        enc_hidden = enc_hidden.view(num_enc_lay, 2, batch_size, hidden_size)
         enc_hidden = torch.cat(
-            (enc_hidden[:, 0], enc_hidden[:, 1]), dim=1
-        ).view(3, batch_size, hidden_size * 2)
+            (enc_hidden[-1, 0], enc_hidden[-1, 1]), dim=1
+        ).view(1, batch_size, hidden_size * 2)
 
         # init decoder inputs
         dec_hidden = decoder.init_hidden(batch_size)
@@ -166,8 +173,17 @@ def decode_beam(inp, encoder, decoder, dataset, beam_width):
             # get top k hyptheses
             top_picks = hypotheses[:beam_width]
 
-    for pick in top_picks:
-        print(
-            np.exp(pick["prob"].item()),
-            [dataset.inverse_vocab[token.item()] for token in pick["seq"]],
-        )
+    top_probs = [np.exp(pick["prob"].item()) for pick in top_picks]
+    top_seqs = [pick["seq"] for pick in top_picks]
+
+    return list(zip(top_probs, top_seqs))
+
+def clean_dec_output(sequence):
+    sequence = [token for token in sequence if token != "<pad>" and token != "<stop>"]
+    sequence = " ".join(sequence)
+    sequence = sequence.replace("<new>", "\n")
+
+    return sequence
+
+
+

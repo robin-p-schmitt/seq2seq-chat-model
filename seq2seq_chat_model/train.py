@@ -99,19 +99,19 @@ def train(encoder, decoder, dataset, epochs=500, batch_size=512):
                 / ((len(dataset) // batch_size) * dataset.max_length),
             )
         )
-        logging.info("Epoch {} - Loss: {}".format(
+        logging.info(
+            "Epoch {} - Loss: {}".format(
                 epoch,
                 running_loss
                 / ((len(dataset) // batch_size) * dataset.max_length),
-            ))
+            )
+        )
 
 
 if __name__ == "__main__":
     # init variables
     data_path = os.path.join("seq2seq_chat_model", "data", "training")
-    save_dest = os.path.join(
-                "seq2seq_chat_model", "models", "saved"
-            )
+    save_dest = os.path.join("seq2seq_chat_model", "models", "saved")
     if not os.path.exists(save_dest):
         os.mkdir(save_dest)
     log_path = os.path.join(save_dest, "train_log.log")
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     # init movie dataset
     print("INIT MOVIE DATASET")
     mov_path = Path(data_path).glob("movie-corpus.txt")
-    mov_dataset = ChatDataset(mov_path, max_length=15, min_count=15)
+    mov_dataset = ChatDataset(mov_path, max_length=20, min_count=10)
     print("LENGTH OF MOVIE DATASET: ", len(mov_dataset))
 
     # pretrain movie embeddings
@@ -130,10 +130,10 @@ if __name__ == "__main__":
     word2vec = gensim.models.Word2Vec(
         mov_dataset.sentences,
         size=hidden_size,
-        window=7,
+        window=10,
         min_count=mov_dataset.min_count,
         negative=5,
-        iter=10,
+        iter=30,
     )
     # load pretrained embeddings into dataset and create torch embedding layer
     print("Load movie embeddings")
@@ -144,10 +144,10 @@ if __name__ == "__main__":
 
     # define encoder and decoder for movie dialogue task
     encoder = LSTMEncoder(
-        mov_embedding.num_embeddings, hidden_size, 7, mov_embedding
+        mov_embedding.num_embeddings, hidden_size, 9, mov_embedding
     ).to(device)
     decoder = LSTMAttentionDecoder(
-        hidden_size, mov_embedding.num_embeddings, 5, mov_embedding
+        hidden_size, mov_embedding.num_embeddings, 7, mov_embedding
     ).to(device)
 
     # add movie setup to setups
@@ -160,36 +160,50 @@ if __name__ == "__main__":
     # init whatsapp dataset
     print("INIT WHATSAPP DATASET")
     wa_paths = Path(data_path).glob("whatsapp*.txt")
-    wa_dataset = ChatDataset(wa_paths, max_length=15, min_count=5)
+    wa_dataset = ChatDataset(wa_paths, max_length=20, min_count=5)
     print("LENGTH OF WHATSAPP DATASET: ", len(wa_dataset))
 
     # pretrain whatsapp embeddings
     print("Train whatsapp embeddings")
     word2vec = gensim.models.Word2Vec(
         wa_dataset.sentences,
-        size=128,
+        size=hidden_size,
         window=7,
         min_count=wa_dataset.min_count,
         negative=5,
-        iter=30,
+        iter=100,
     )
 
     # load pretrained embeddings into dataset and create torch embedding layer
     print("Load whatsapp embeddings")
     wa_dataset.load_word2vec(word2vec)
-    wa_embedding = nn.Embedding.from_pretrained((wa_dataset.get_embeddings())).to(device)
+    wa_embedding = nn.Embedding.from_pretrained(
+        (wa_dataset.get_embeddings())
+    ).to(device)
 
     # add whatsapp setup
     learning_setups["whatsapp"] = {
         "embedding": wa_embedding,
-        "projection": nn.Linear(hidden_size, wa_embedding.num_embeddings).to(device),
+        "projection": nn.Linear(hidden_size, wa_embedding.num_embeddings).to(
+            device
+        ),
         "dataset": wa_dataset,
     }
 
-    torch.save(learning_setups["whatsapp"], os.path.join(save_dest, "setups.pt"))
+    inference_setup = {}
+    inference_setup["german"] = {
+        "embedding": learning_setups["whatsapp"]["embedding"],
+        "projection": learning_setups["whatsapp"]["projection"],
+        "vocab": learning_setups["whatsapp"]["dataset"].vocab
+    }
+    inference_setup["english"] = {
+        "embedding": learning_setups["movie"]["embedding"],
+        "projection": learning_setups["movie"]["projection"],
+        "vocab": learning_setups["movie"]["dataset"].vocab
+    }
 
     print("Start Multitask Training")
-    for i in range(200):
+    for i in range(250):
         # randomly select one of the tasks
         print("Iteration " + str(i))
         logging.info("Iteration " + str(i))
@@ -201,22 +215,8 @@ if __name__ == "__main__":
         decoder.embedding = setup["embedding"]
         decoder.projection = setup["projection"]
 
-        #train the current setup for 5 epochs
+        # train the current setup for 5 epochs
         train(encoder, decoder, setup["dataset"], epochs=3, batch_size=512)
-
-        #save models
-        torch.save(
-            encoder.state_dict(),
-            os.path.join(
-                save_dest, "encoder.pt"
-            ),
-        )
-        torch.save(
-            decoder.state_dict(),
-            os.path.join(
-                save_dest, "decoder.pt"
-            ),
-        )
 
     print("Start fine-tuning")
     setup = learning_setups["whatsapp"]
@@ -228,19 +228,31 @@ if __name__ == "__main__":
     decoder.projection = setup["projection"]
 
     # fine-tuning for target task (whatsapp)
-    train(encoder, decoder, setup["dataset"], epochs=150, batch_size=512)
+    train(encoder, decoder, setup["dataset"], epochs=250, batch_size=512)
 
-    #save models
+    # save data for inference
+    inference_setup = {}
+    inference_setup["german"] = {
+        "embedding": learning_setups["whatsapp"]["embedding"],
+        "projection": learning_setups["whatsapp"]["projection"],
+        "vocab": learning_setups["whatsapp"]["dataset"].vocab
+    }
+    inference_setup["english"] = {
+        "embedding": learning_setups["movie"]["embedding"],
+        "projection": learning_setups["movie"]["projection"],
+        "vocab": learning_setups["movie"]["dataset"].vocab
+    }
+
+    # save setups
+    torch.save(inference_setup, os.path.join(save_dest, "setup.pt"))
+
+    # save models
     torch.save(
-        encoder.state_dict(),
-        os.path.join(
-            save_dest, "encoder.pt"
-        ),
+        encoder,
+        os.path.join(save_dest, "encoder.pt"),
     )
     torch.save(
-        decoder.state_dict(),
-        os.path.join(
-            save_dest, "decoder.pt"
-        ),
+        decoder,
+        os.path.join(save_dest, "decoder.pt"),
     )
-
+    

@@ -8,48 +8,52 @@ from itertools import groupby
 from operator import itemgetter
 import nltk
 
+
 def separate_emojis(text):
-        """Separate multiple consecutive emojis with spaces.
+    """Separate multiple consecutive emojis with spaces.
 
-        In mobile chat applications, emojis are often typed consecutively
-        without spaces in-between.
-        """
-        # this matches emojis which are directly preceded by non-whitespace chars
-        emoji_pattern = re.compile(
-            r"(\S*?)" u"([\U00010000-\U0010ffff(\u2764\uFE0F)])"
-        )
-        # insert blank in front of emoji
-        text = re.sub(emoji_pattern, r"\1 \2", text)
-        # this matches emojis which are directly succeeded by non-whitespace chars
-        emoji_pattern = re.compile(
-            u"([\U00010000-\U0010ffff(\u2764\uFE0F)])" r"(\S+)"
-        )
-        # insert blank behind emoji
-        text = re.sub(emoji_pattern, r"\1 \2", text)
+    In mobile chat applications, emojis are often typed consecutively
+    without spaces in-between.
+    """
+    # this matches emojis which are directly preceded by non-whitespace chars
+    emoji_pattern = re.compile(
+        r"(\S*?)" u"([\U00010000-\U0010ffff(\u2764\uFE0F)])"
+    )
+    # insert blank in front of emoji
+    text = re.sub(emoji_pattern, r"\1 \2", text)
+    # this matches emojis which are directly succeeded by non-whitespace chars
+    emoji_pattern = re.compile(
+        u"([\U00010000-\U0010ffff(\u2764\uFE0F)])" r"(\S+)"
+    )
+    # insert blank behind emoji
+    text = re.sub(emoji_pattern, r"\1 \2", text)
 
-        return text
+    return text
+
 
 def replace_multichars(text):
-        """Replace consecutive occurrences of the same character with only 2 occurrences.
+    """Replace consecutive occurrences of the same character with only 2 occurrences.
 
-        In chat applications, words are often stretched out. E.g.: "heeeey".
-        This functions replaces such character series with two instances of the character.
-        """
-        new = text
-        # find series of three or more consecutive chars
-        multichars = re.findall(r"((\w)\2{3,})", text)
-        if multichars:
-            for char in multichars:
-                # replace them with a sequence of two chars
-                new = new.replace(char[0], char[1] * 2)
+    In chat applications, words are often stretched out. E.g.: "heeeey".
+    This functions replaces such character series with two instances of the character.
+    """
+    new = text
+    # find series of three or more consecutive chars
+    multichars = re.findall(r"((\w)\2{3,})", text)
+    if multichars:
+        for char in multichars:
+            # replace them with a sequence of two chars
+            new = new.replace(char[0], char[1] * 2)
 
-        return new
+    return new
+
 
 def replace_digits(txt):
-        if re.search(r"\d+", txt):
-            return "<number>"
+    if re.search(r"\d+", txt):
+        return "<number>"
 
-        return txt
+    return txt
+
 
 def prepare_whatsapp_data(path_to_chats, new_dir):
     """Convert exported WhatsApp chats into desired format.
