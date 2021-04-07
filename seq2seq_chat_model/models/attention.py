@@ -69,15 +69,15 @@ class Attention(nn.Module, ABC):
     def _get_attention_heads(self, tensor, projection):
         """Returns the projected keys, values and queries."""
 
-        # merge batches and sequences and add length of 
+        # merge batches and sequences and add length of
         # signal sequence dimension
         heads = tensor.view(-1, tensor.shape[-1], 1)
-        # repeat the vectors in the 2nd dimension for 
+        # repeat the vectors in the 2nd dimension for
         # n_heads times
         heads = heads.repeat(1, self.n_heads, 1)
         # project the different repitions using different weights
         heads = projection(heads)
-        # separate batches and sequences and 
+        # separate batches and sequences and
         # the different projected heads
         heads = heads.view(*tensor.shape[:2], self.n_heads, -1)
         # switch head and sequence dimension
@@ -96,7 +96,9 @@ class Attention(nn.Module, ABC):
         # of shape (batch * n_heads, seq_len, size)
         key_heads = self._get_attention_heads(keys, self.key_projections)
         val_heads = self._get_attention_heads(vals, self.val_projections)
-        query_heads = self._get_attention_heads(queries, self.query_projections)
+        query_heads = self._get_attention_heads(
+            queries, self.query_projections
+        )
 
         scores = self._scoring_function(query_heads, key_heads)
 
@@ -106,7 +108,7 @@ class Attention(nn.Module, ABC):
         context = torch.bmm(scores, val_heads)
 
         context = context.view(-1, self.n_heads, *context.shape[1:])
-        context = context.transpose(1,2)
+        context = context.transpose(1, 2)
         # concatenate attention heads
         context = context.reshape(*context.shape[:2], -1)
         # project concatenated contexts to key/value dimension
@@ -114,9 +116,14 @@ class Attention(nn.Module, ABC):
 
         return context
 
+
 class AdditiveAttention(Attention):
     """Implementation of additive attention as described in
     https://arxiv.org/pdf/1409.0473.pdf.
+
+    The scoring function is given by:
+
+        score(key, query) = v^T * tanh(W * query + U * key)
     """
 
     def __init__(self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1):
@@ -132,6 +139,25 @@ class AdditiveAttention(Attention):
                 self.W(query_heads[:, :, None]) + self.U(key_heads[:, None])
             )
         )
+        return scores
+
+
+class GeneralAttention(Attention):
+    """Implementation of general attention as described in
+    https://arxiv.org/pdf/1508.04025.pdf.
+
+    The scoring function is given by:
+
+        score(key, query) = query^T * W * key
+    """
+
+    def __init__(self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1):
+        super().__init__(d_key_val, d_query, d_k, d_v, n_heads)
+
+        self.W = nn.Linear(self.d_k, self.d_k)
+
+    def _scoring_function(self, query_heads, key_heads):
+        scores = torch.bmm(query_heads, self.W(key_heads).transpose(1, 2))
         return scores
 
 
