@@ -1,4 +1,4 @@
-from ..dataset import ChatDataset
+from seq2seq_chat_model.dataset import ChatDataset
 from pathlib import Path
 import os
 import string
