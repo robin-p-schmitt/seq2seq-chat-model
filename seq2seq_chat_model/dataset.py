@@ -1,11 +1,9 @@
 import torch
 from torch.utils.data import Dataset
-from pathlib import Path
 import re
 from tqdm import tqdm
 import nltk
 import gensim
-import os
 from seq2seq_chat_model.data.prepare_data import replace_digits
 from seq2seq_chat_model.models.utils import (
     get_encoder_input,
@@ -50,7 +48,8 @@ class ChatDataset(Dataset):
         files, create vocabulary and pretrain word2vec embeddings.
 
         Args:
-            file_paths (Iterable): an iterable of file paths to get the data from.
+            file_paths (Iterable): an iterable of file paths to get the data
+                                    from.
             max_length (int): the maximum length of returned sequences.
             embedding_size (int): size of word embeddings.
 
@@ -203,35 +202,5 @@ class ChatDataset(Dataset):
 
         question = get_encoder_input(question_group, self)
         answer = get_decoder_input(answer_group, self)
-
-        # question, answer = [
-        #     [token for seq in seq_group for token in seq + ["<new>"]]
-        #     for seq_group in [question_group, answer_group]
-        # ]
-        # # replace every token with its unique index or with the <unk> index
-        # # if it is not in the vocabulary
-        # question, answer = [
-        #     [
-        #         self.vocab[token]
-        #         if token in self.vocab
-        #         else self.vocab["<unk>"]
-        #         for token in seq
-        #     ]
-        #     for seq in [question, answer]
-        # ]
-
-        # # either cut off long sequences or pad short sequences so that
-        # # every sequence has length max_length
-        # question = question[: self.max_length] + [self.vocab["<pad>"]] * max(
-        #     self.max_length - len(question), 0
-        # )
-        # # additionally, add sos and eos tokens to start and end of the
-        # # answer
-        # answer = (
-        #     [self.vocab["<start>"]]
-        #     + answer[: self.max_length - 2]
-        #     + [self.vocab["<stop>"]]
-        #     + [self.vocab["<pad>"]] * max(self.max_length - len(answer) - 2, 0)
-        # )
 
         return (torch.tensor(question), torch.tensor(answer))

@@ -3,10 +3,8 @@ from pathlib import Path
 from datetime import datetime
 import time
 import os
-from tqdm import tqdm
 from itertools import groupby
 from operator import itemgetter
-import nltk
 
 
 def separate_emojis(text):
@@ -32,10 +30,12 @@ def separate_emojis(text):
 
 
 def replace_multichars(text):
-    """Replace consecutive occurrences of the same character with only 2 occurrences.
+    """Replace consecutive occurrences of the same character with only 2
+    occurrences.
 
     In chat applications, words are often stretched out. E.g.: "heeeey".
-    This functions replaces such character series with two instances of the character.
+    This functions replaces such character series with two instances of the
+    character.
     """
     new = text
     # find series of three or more consecutive chars
@@ -136,18 +136,20 @@ def prepare_whatsapp_data(path_to_chats, new_dir):
             messages = [
                 [separate_emojis(msg) for msg in group] for group in messages
             ]
-            # replace 3 or more multiple consecutive characters with 2 of those chars
+            # replace 3 or more multiple consecutive characters with 2 of those
+            # chars
             messages = [
                 [replace_multichars(msg) for msg in group]
                 for group in messages
             ]
             # filter out system messages
             messages = [
-                [msg for msg in group if not msg in system_msgs]
+                [msg for msg in group if msg not in system_msgs]
                 for group in messages
             ]
 
-            # always write two consecutive messages separated by a tab into the file
+            # always write two consecutive messages separated by a tab into the
+            # file
             for i in range(len(messages) - 1):
                 if messages[i] and messages[i + 1]:
                     f.write(
@@ -159,8 +161,10 @@ def prepare_cornell_movie_corpus(path_to_lines, path_to_dialogues, new_dir):
     """Convert the cornell movie corpus to a common format.
 
     Args:
-        path_to_lines: file which maps movie line ids to their corresponding text.
-        path_to_dialogues: file with lists of line ids that correspond to a dialogue in a movie.
+        path_to_lines: file which maps movie line ids to their corresponding
+        text.
+        path_to_dialogues: file with lists of line ids that correspond to a
+        dialogue in a movie.
     """
     movie_lines = {}
     # create dictionary which maps line ids to their corresponding text
