@@ -178,12 +178,12 @@ def decode_beam(inp, encoder, decoder, dataset, beam_width):
 
     return list(zip(top_probs, top_seqs))
 
+
 def clean_dec_output(sequence):
-    sequence = [token for token in sequence if token != "<pad>" and token != "<stop>"]
+    sequence = [
+        token for token in sequence if token != "<pad>" and token != "<stop>"
+    ]
     sequence = " ".join(sequence)
     sequence = sequence.replace("<new>", "\n")
 
     return sequence
-
-
-

@@ -194,12 +194,12 @@ if __name__ == "__main__":
     inference_setup["german"] = {
         "embedding": learning_setups["whatsapp"]["embedding"],
         "projection": learning_setups["whatsapp"]["projection"],
-        "vocab": learning_setups["whatsapp"]["dataset"].vocab
+        "vocab": learning_setups["whatsapp"]["dataset"].vocab,
     }
     inference_setup["english"] = {
         "embedding": learning_setups["movie"]["embedding"],
         "projection": learning_setups["movie"]["projection"],
-        "vocab": learning_setups["movie"]["dataset"].vocab
+        "vocab": learning_setups["movie"]["dataset"].vocab,
     }
 
     print("Start Multitask Training")
@@ -235,12 +235,12 @@ if __name__ == "__main__":
     inference_setup["german"] = {
         "embedding": learning_setups["whatsapp"]["embedding"],
         "projection": learning_setups["whatsapp"]["projection"],
-        "vocab": learning_setups["whatsapp"]["dataset"].vocab
+        "vocab": learning_setups["whatsapp"]["dataset"].vocab,
     }
     inference_setup["english"] = {
         "embedding": learning_setups["movie"]["embedding"],
         "projection": learning_setups["movie"]["projection"],
-        "vocab": learning_setups["movie"]["dataset"].vocab
+        "vocab": learning_setups["movie"]["dataset"].vocab,
     }
 
     # save setups
@@ -255,4 +255,3 @@ if __name__ == "__main__":
         decoder,
         os.path.join(save_dest, "decoder.pt"),
     )
-    
