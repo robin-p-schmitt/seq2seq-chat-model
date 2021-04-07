@@ -1,46 +1,57 @@
 from seq2seq_chat_model.models.attention import (
     AdditiveAttention,
     DotProductAttention,
+    ScaledDotProductAttention,
+    CosineAttention,
+    GeneralAttention,
 )
 import torch
-
-# initialize example values
-batch_size = 10
-enc_seq_len = 5
-dec_seq_len = 7
-enc_dim = 256
-dec_dim = 128
-enc_seq = torch.ones((batch_size, enc_seq_len, enc_dim))
-dec_seq = torch.ones((batch_size, dec_seq_len, dec_dim))
-n_heads = 8
+import unittest
 
 
-def test_additive_attention():
-    """
-    Tests, if additive attention returns context of right shape.
-    """
-    attention = AdditiveAttention(enc_dim, dec_dim, n_heads=n_heads)
-    context = attention(enc_seq, enc_seq, dec_seq)
-    assert context.shape == torch.Size([batch_size, dec_seq_len, enc_dim])
+class TestAttention(unittest.TestCase):
+    def setUp(self) -> None:
+        self.batch_size = 10
+        self.enc_seq_len = 5
+        self.dec_seq_len = 7
+        self.enc_dim = 256
+        self.dec_dim = 128
+        self.enc_seq = torch.ones(
+            (self.batch_size, self.enc_seq_len, self.enc_dim)
+        )
+        self.dec_seq = torch.ones(
+            (self.batch_size, self.dec_seq_len, self.dec_dim)
+        )
+        self.n_heads = 8
 
+        self.modules = [
+            AdditiveAttention,
+            DotProductAttention,
+            ScaledDotProductAttention,
+            CosineAttention,
+            GeneralAttention,
+        ]
 
-def test_dot_product_attention():
-    """
-    Tests, if (scaled) dot-product attention returns context of right shape.
-    """
-    attention = DotProductAttention(
-        enc_dim, dec_dim, n_heads=n_heads, scaled=True
-    )
-    context = attention(enc_seq, enc_seq, dec_seq)
-    assert context.shape == torch.Size([batch_size, dec_seq_len, enc_dim])
+    def assert_context_shape(self, attention_mod):
+        context = attention_mod(self.enc_seq, self.enc_seq, self.dec_seq)
+        assert context.shape == torch.Size(
+            [self.batch_size, self.dec_seq_len, self.enc_dim]
+        )
 
-    attention = DotProductAttention(
-        enc_dim, dec_dim, n_heads=n_heads, scaled=False
-    )
-    context = attention(enc_seq, enc_seq, dec_seq)
-    assert context.shape == torch.Size([batch_size, dec_seq_len, enc_dim])
+    def test_attention_modules(self):
+        for module in self.modules:
+            with self.subTest(module=module):
+                attention = module(
+                    self.enc_dim, self.dec_dim, n_heads=self.n_heads
+                )
+                context = attention(self.enc_seq, self.enc_seq, self.dec_seq)
+                self.assertSequenceEqual(
+                    context.shape,
+                    torch.Size(
+                        [self.batch_size, self.dec_seq_len, self.enc_dim]
+                    ),
+                )
 
 
 if __name__ == "__main__":
-    test_additive_attention()
-    test_dot_product_attention()
+    unittest.main()
