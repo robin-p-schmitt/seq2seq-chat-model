@@ -1,22 +1,30 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from abc import ABC
+from abc import abstractmethod
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-class Attention(nn.Module):
+class Attention(nn.Module, ABC):
     """Base class of different attention mechanisms.
 
     In order to parallelize multi-head attention, grouped convolutional
     layers are used to represent parallel Dense layers.
 
-    Args:
-        d_key_val (int): number of dimensions of the keys and values.
-        d_query (int): number of dimension of the queries.
-        d_k (int): number of dimensions the keys and values are mapped to.
-        d_v (int): number of dimensions the queries are mapped to.
-        n_heads (int): number of attention heads used.
+    :param d_key_val: dimensionality of the keys and values.
+    :type d_key_val: int
+    :param d_query: dimensionality of the queries.
+    :type d_query: int
+    :param d_k: dimensionality of the key/query attention subspace.
+        If `None`, :param:`d_k` defaults to :param:`d_key_val`/`8`.
+    :type d_k: int, optional
+    :param d_v: dimensionality of the value attention subspace.
+        If `None`, :param:`d_v` defaults to :param:`d_key_val`/8.
+    :type d_v: int, optional
+    :param n_heads: number of attention heads used. Defaults to 1.
+    :type n_heads: int, optional
     """
 
     def __init__(self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1):
@@ -32,21 +40,24 @@ class Attention(nn.Module):
             if d_key_val % n_heads != 0:
                 raise ValueError("d_key_val is not divisible by n_heads")
 
-            self.d_k = self.d_v = d_key_val // n_heads
+            if d_k is None:
+                self.d_k = d_key_val // n_heads
+            if d_v is None:
+                self.d_v = d_key_val // n_heads
 
-        self.key_heads = nn.Conv1d(
+        self.key_projections = nn.Conv1d(
             in_channels=d_key_val * n_heads,
             out_channels=self.d_k * n_heads,
             kernel_size=1,
             groups=n_heads,
         )
-        self.query_heads = nn.Conv1d(
+        self.query_projections = nn.Conv1d(
             in_channels=d_query * n_heads,
             out_channels=self.d_k * n_heads,
             kernel_size=1,
             groups=n_heads,
         )
-        self.val_heads = nn.Conv1d(
+        self.val_projections = nn.Conv1d(
             in_channels=d_key_val * n_heads,
             out_channels=self.d_v * n_heads,
             kernel_size=1,
@@ -55,42 +66,57 @@ class Attention(nn.Module):
 
         self.projection = nn.Linear(n_heads * self.d_v, d_key_val)
 
-    def project_heads(self, keys, vals, queries):
+    def _get_attention_heads(self, tensor, projection):
         """Returns the projected keys, values and queries."""
 
-        # merge batch and seq dimension, repeat keys for n_heads-times and
-        # apply the multiple projection heads
-        keys_heads = self.key_heads(
-            keys.view(-1, self.d_key_val, 1).repeat(1, self.n_heads, 1)
-        )
-        # re-view keys into shape (batch, sequence, n_heads, d_k)
-        keys_heads = keys_heads.view(
-            keys.size(0), keys.size(1), self.n_heads, self.d_k
-        )
+        # merge batches and sequences and add length of 
+        # signal sequence dimension
+        heads = tensor.view(-1, tensor.shape[-1], 1)
+        # repeat the vectors in the 2nd dimension for 
+        # n_heads times
+        heads = heads.repeat(1, self.n_heads, 1)
+        # project the different repitions using different weights
+        heads = projection(heads)
+        # separate batches and sequences and 
+        # the different projected heads
+        heads = heads.view(*tensor.shape[:2], self.n_heads, -1)
+        # switch head and sequence dimension
+        heads = heads.transpose(1, 2)
+        # merge batch and head dimension
+        heads = heads.reshape(-1, *heads.shape[2:])
 
-        # same as above but for values and queries
-        vals_heads = self.val_heads(
-            vals.view(-1, self.d_key_val, 1).repeat(1, self.n_heads, 1)
-        )
-        vals_heads = vals_heads.view(
-            vals.size(0), vals.size(1), self.n_heads, self.d_v
-        )
-        queries_heads = self.query_heads(
-            queries.view(-1, self.d_query, 1).repeat(1, self.n_heads, 1)
-        )
-        queries_heads = queries_heads.view(
-            queries.size(0), queries.size(1), self.n_heads, self.d_k
-        )
+        return heads
 
-        return keys_heads, vals_heads, queries_heads
+    @abstractmethod
+    def _scoring_function(self, query_heads, key_heads):
+        ...
 
+    def forward(self, keys, vals, queries):
+        # obtain different representations
+        # of shape (batch * n_heads, seq_len, size)
+        key_heads = self._get_attention_heads(keys, self.key_projections)
+        val_heads = self._get_attention_heads(vals, self.val_projections)
+        query_heads = self._get_attention_heads(queries, self.query_projections)
+
+        scores = self._scoring_function(query_heads, key_heads)
+
+        # apply softmax over key sequence and squeeze last dimension
+        scores = F.softmax(torch.squeeze(scores, -1), -1)
+
+        context = torch.bmm(scores, val_heads)
+
+        context = context.view(-1, self.n_heads, *context.shape[1:])
+        context = context.transpose(1,2)
+        # concatenate attention heads
+        context = context.reshape(*context.shape[:2], -1)
+        # project concatenated contexts to key/value dimension
+        context = self.projection(context)
+
+        return context
 
 class AdditiveAttention(Attention):
     """Implementation of additive attention as described in
     https://arxiv.org/pdf/1409.0473.pdf.
-
-    The scoring function is given by:
-        score(query, key) = v^T * tanh(W * query + U * key)
     """
 
     def __init__(self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1):
@@ -100,91 +126,58 @@ class AdditiveAttention(Attention):
         self.W = nn.Linear(self.d_k, self.d_k)
         self.U = nn.Linear(self.d_k, self.d_k)
 
-    def forward(self, keys, vals, queries):
-        # obtain different representations from attention heads
-        keys_heads, vals_heads, queries_heads = self.project_heads(
-            keys, vals, queries
-        )
-
-        # apply the scoring function to the keys and queries
-        # scores is of shape (batch, query_seq, key_seq, n_heads, 1)
-        # and assigns every query token a score for every key token
+    def _scoring_function(self, query_heads, key_heads):
         scores = self.v(
             torch.tanh(
-                self.W(queries_heads[:, :, None]) + self.U(keys_heads[:, None])
+                self.W(query_heads[:, :, None]) + self.U(key_heads[:, None])
             )
         )
-        # switch key_seq with n_heads
-        scores = scores.permute(0, 1, 3, 2, 4)
-        # apply softmax over key sequence and squeeze last dimension
-        scores = F.softmax(torch.squeeze(scores, -1), -1)
-
-        # permute the values to get the same order as the score
-        # and multiply scores with the values to obtain weighted values
-        context = (
-            vals_heads.permute(0, 2, 1, 3)[:, None] * scores[:, :, :, :, None]
-        )
-        # sum over weighted values and concatenate context vectors of
-        context = torch.sum(context, dim=-2)
-        # concatenate attention heads
-        context = context.view(*context.shape[:-2], -1)
-        # project concatenated contexts to key/value dimension
-        context = self.projection(context)
-
-        return context
+        return scores
 
 
 class DotProductAttention(Attention):
-    """Implementation of (scaled) dot-product attention as described in
-    https://arxiv.org/pdf/1706.03762.pdf and
+    """Implementation of dot-product attention as described in
     https://arxiv.org/pdf/1508.04025.pdf.
 
     The scoring function is given by:
+
         score(query, key) = query^T * key
-    and is optionally scaled by d_k, which is the dimensionality of the
-    queries and keys.
+
     """
 
-    def __init__(
-        self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1, scaled=True
-    ):
-        super().__init__(d_key_val, d_query, d_k, d_v, n_heads)
+    def _scoring_function(self, query_heads, key_heads):
+        scores = torch.bmm(query_heads, torch.transpose(key_heads, 1, 2))
+        return scores
 
-        self.scaling_factor = 1
 
-        if scaled:
-            self.scaling_factor = self.d_k
+class ScaledDotProductAttention(Attention):
+    """Implementation of scaled dot-product attention
+    as described in
+    https://arxiv.org/pdf/1706.03762.pdf.
 
-    def forward(self, keys, vals, queries):
-        # obtain different representations from attention heads
-        keys_heads, vals_heads, queries_heads = self.project_heads(
-            keys, vals, queries
-        )
+    The scoring function is given by:
 
-        # obtain three dimensional keys, queries and heads with shape
-        # (batch * n_heads, seq_len, size)
-        # and transpose the keys
-        keys_heads = keys_heads.permute(0, 2, 3, 1)
-        keys_heads = keys_heads.reshape(-1, *keys_heads.shape[2:])
-        queries_heads = queries_heads.permute(0, 2, 1, 3)
-        queries_heads = queries_heads.reshape(-1, *queries_heads.shape[2:])
-        vals_heads = vals_heads.permute(0, 2, 1, 3)
-        vals_heads = vals_heads.reshape(-1, *vals_heads.shape[2:])
+        score(query, key) = (query^T * key) / d_k
 
-        # obtain scores as batch matrix multiplication of queries and keys
-        scores = torch.bmm(queries_heads, keys_heads) / self.scaling_factor
-        scores = F.softmax(scores, dim=-1)
+    """
 
-        # obtain context vectors as batch matmul of scores and values
-        # context is of shape (batch * n_heads, n_queries, d_v)
-        context = torch.bmm(scores, vals_heads)
-        # separate batch and heads again and switch head dimension with
-        # seq_len dimension
-        context = context.view(
-            -1, self.n_heads, queries_heads.shape[1], self.d_v
-        ).permute(0, 2, 1, 3)
-        # concatenate heads and project to key/value dimension
-        context = context.reshape(*context.shape[:2], -1)
-        context = self.projection(context)
+    def _scoring_function(self, query_heads, key_heads):
+        scores = torch.bmm(query_heads, torch.transpose(key_heads, 1, 2))
+        return scores
 
-        return context
+
+class CosineAttention(Attention):
+    """Implementation of cosine attention as described in
+    https://arxiv.org/pdf/1410.5401.pdf.
+
+    The scoring function is given by:
+
+        score(query, key) = (query^T * key) / (||query|| * ||key||)
+
+    """
+
+    def _scoring_function(self, query_heads, key_heads):
+        queries_norm = query_heads / query_heads.norm(dim=-1, keepdim=True)
+        keys_norm = key_heads / key_heads.norm(dim=-1, keepdim=True)
+        scores = torch.bmm(queries_norm, torch.transpose(keys_norm, 1, 2))
+        return scores
