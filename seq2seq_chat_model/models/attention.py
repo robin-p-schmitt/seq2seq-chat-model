@@ -1,3 +1,9 @@
+"""This module contains implementations of different attention mechanisms.
+
+The base class of all attention classes is the abstract ``Attention`` base class.
+
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,26 +14,37 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class Attention(nn.Module, ABC):
-    """Base class of different attention mechanisms.
+    """Base class of all other attention classes.
 
-    In order to parallelize multi-head attention, grouped convolutional
-    layers are used to represent parallel Dense layers.
+    All implemented attention classes need to extend this class. Here, all
+    basic attention parameters are initialized and the attention mechanism
+    is defined in the ``forward`` function.
 
-    :param d_key_val: dimensionality of the keys and values.
-    :type d_key_val: int
-    :param d_query: dimensionality of the queries.
-    :type d_query: int
-    :param d_k: dimensionality of the key/query attention subspace.
-        If `None`, :param:`d_k` defaults to :param:`d_key_val`/`8`.
-    :type d_k: int, optional
-    :param d_v: dimensionality of the value attention subspace.
-        If `None`, :param:`d_v` defaults to :param:`d_key_val`/8.
-    :type d_v: int, optional
-    :param n_heads: number of attention heads used. Defaults to 1.
-    :type n_heads: int, optional
+    For multi head attention, grouped convolutional layers are used to
+    enable parallelization across attention heads. For this, the input
+    vector is repeated for ``n_heads`` times. Then, each "repetition" is
+    processed by a 1D convolutional layer with kernel size 1 and
+    dim(output) channels. This corresponds to ``n_heads`` Dense layers,
+    each with dim(input) input neurons and dim(output) output neurons.
+
+    Attributes: d_key_val (int): the dimensionality of the keys and values.
+        d_query (int): the dimensionality of the queries. d_k (int,
+        optional): the dimensionality of the projected keys and queries.
+        Defaults to ``d_key_val`` / ``n_heads``.  
+        d_v (int, optional): the dimensionality of the projected queries.
+            Defaults to ``d_key_val`` / ``n_heads``. n_heads (int,
+            optional): the number of attention heads used. If either
+            ``d_k`` or ``d_v`` is ``None``, ``d_key_val`` needs to be
+            divisible by ``n_heads``.
     """
 
     def __init__(self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1):
+        """Initialize all basic variables needed for any attention mechanism.
+
+        Raises:
+            ValueError: If ``d_k`` or ``d_v`` is ``None`` and ``d_key_val``
+            is not divisible by ``n_heads``.
+        """
         super(Attention, self).__init__()
 
         self.d_key_val = d_key_val
@@ -36,6 +53,8 @@ class Attention(nn.Module, ABC):
         self.d_v = d_v
         self.n_heads = n_heads
 
+        # initialize ``d_k`` and ``d_v`` as ``d_key_val`` / ``n_heads`` if
+        # not given 
         if d_k is None or d_v is None:
             if d_key_val % n_heads != 0:
                 raise ValueError("d_key_val is not divisible by n_heads")
@@ -45,18 +64,24 @@ class Attention(nn.Module, ABC):
             if d_v is None:
                 self.d_v = d_key_val // n_heads
 
+        # convolutional projection layers which each represent one
+        # attention head
+
+        # for keys
         self.key_projections = nn.Conv1d(
             in_channels=d_key_val * n_heads,
             out_channels=self.d_k * n_heads,
             kernel_size=1,
             groups=n_heads,
         )
+        # for queries
         self.query_projections = nn.Conv1d(
             in_channels=d_query * n_heads,
             out_channels=self.d_k * n_heads,
             kernel_size=1,
             groups=n_heads,
         )
+        # for values
         self.val_projections = nn.Conv1d(
             in_channels=d_key_val * n_heads,
             out_channels=self.d_v * n_heads,
@@ -64,10 +89,24 @@ class Attention(nn.Module, ABC):
             groups=n_heads,
         )
 
+        # last projection layer which maps the concatenation of attention
+        # heads to the output of the attention mechanism
         self.projection = nn.Linear(n_heads * self.d_v, d_key_val)
 
     def _get_attention_heads(self, tensor, projection):
-        """Returns the projected keys, values and queries."""
+        """Apply attention heads to the input tensor.
+
+        Args:
+            tensor (torch.tensor): 
+                Input tensor of shape (batch, seq_len, size)
+            projection (function): 
+                Function to use for projection.
+        
+        Returns:
+            torch.tensor: 
+            Projected version of the input tensor of shape
+            (batch * n_heads, seq_len, size_projected)
+        """
 
         # merge batches and sequences and add length of
         # signal sequence dimension
@@ -78,7 +117,6 @@ class Attention(nn.Module, ABC):
         # project the different repitions using different weights
         heads = projection(heads)
         # separate batches and sequences and
-        # the different projected heads
         heads = heads.view(*tensor.shape[:2], self.n_heads, -1)
         # switch head and sequence dimension
         heads = heads.transpose(1, 2)
@@ -89,24 +127,60 @@ class Attention(nn.Module, ABC):
 
     @abstractmethod
     def _scoring_function(self, query_heads, key_heads):
+        """Defines the attention scoring function.
+
+        Args:
+            query_heads (torch.tensor): queries of shape
+                (batch * n_heads, query_seq_len, d_k)
+            
+            key_heads (torch.tensor): keys of shape
+                (batch * n_heads, key_seq_len, d_k)
+
+        Returns:
+            torch.tensor: unnormalized scores of shape
+                (batch * n_heads, query_seq_len, key_seq_len, 1)
+                which assigns every token in the query sequence
+                a score for every token in the key sequence.
+        """
         ...
 
     def forward(self, keys, vals, queries):
-        # obtain different representations
-        # of shape (batch * n_heads, seq_len, size)
+        """Define general attention mechanism.
+
+        First, the projections of the attention heads are obtained for
+        keys, queries and values. Then, the attention scores are obtained.
+        After that, the weighted sum of values is obtained. Lastly, the
+        different heads are concatenated and projected to the original
+        dimensionality of keys and values.
+
+        Args:
+            keys (torch.tensor): sequence of keys of shape (batch,
+                key_seq_len, d_key_val)
+            vals (torch.tensor): sequence of values of shape (batch,
+                val_seq_len, d_key_val)
+            queries (torch.tensor): sequence of queries of shape (batch,
+                query_seq_len, d_query)
+
+        Returns:
+            torch.tensor: weighted context vector of shape (batch,
+                query_seq_len, d_key_val)
+        """
+        # obtain projections
         key_heads = self._get_attention_heads(keys, self.key_projections)
         val_heads = self._get_attention_heads(vals, self.val_projections)
         query_heads = self._get_attention_heads(
             queries, self.query_projections
         )
-
+        # obtain unnormalized scores
         scores = self._scoring_function(query_heads, key_heads)
 
         # apply softmax over key sequence and squeeze last dimension
         scores = F.softmax(torch.squeeze(scores, -1), -1)
 
+        # obtain weighted sum of values
         context = torch.bmm(scores, val_heads)
 
+        # separate batch and head dimension and transpose heads and seq_len
         context = context.view(-1, self.n_heads, *context.shape[1:])
         context = context.transpose(1, 2)
         # concatenate attention heads
@@ -124,6 +198,11 @@ class AdditiveAttention(Attention):
     The scoring function is given by:
 
         score(key, query) = v^T * tanh(W * query + U * key)
+
+    Attributes:
+        v (torch.tensor): project vector to unnormalized score.
+        W (torch.tensor): transform queries.
+        U (torch.tensor): transform keys.
     """
 
     def __init__(self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1):
@@ -149,6 +228,9 @@ class GeneralAttention(Attention):
     The scoring function is given by:
 
         score(key, query) = query^T * W * key
+
+    Attributes:
+        W (torch.tensor): transforms queries and keys.
     """
 
     def __init__(self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1):
