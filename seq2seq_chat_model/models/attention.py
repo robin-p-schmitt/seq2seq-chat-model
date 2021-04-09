@@ -1,6 +1,7 @@
 """This module contains implementations of different attention mechanisms.
 
-The base class of all attention classes is the abstract ``Attention`` base class.
+The base class of all attention classes is the abstract ``Attention`` base
+class.
 
 """
 
@@ -30,7 +31,7 @@ class Attention(nn.Module, ABC):
     Attributes: d_key_val (int): the dimensionality of the keys and values.
         d_query (int): the dimensionality of the queries. d_k (int,
         optional): the dimensionality of the projected keys and queries.
-        Defaults to ``d_key_val`` / ``n_heads``.  
+        Defaults to ``d_key_val`` / ``n_heads``.
         d_v (int, optional): the dimensionality of the projected queries.
             Defaults to ``d_key_val`` / ``n_heads``. n_heads (int,
             optional): the number of attention heads used. If either
@@ -54,7 +55,7 @@ class Attention(nn.Module, ABC):
         self.n_heads = n_heads
 
         # initialize ``d_k`` and ``d_v`` as ``d_key_val`` / ``n_heads`` if
-        # not given 
+        # not given
         if d_k is None or d_v is None:
             if d_key_val % n_heads != 0:
                 raise ValueError("d_key_val is not divisible by n_heads")
@@ -97,13 +98,13 @@ class Attention(nn.Module, ABC):
         """Apply attention heads to the input tensor.
 
         Args:
-            tensor (torch.tensor): 
+            tensor (torch.tensor):
                 Input tensor of shape (batch, seq_len, size)
-            projection (function): 
+            projection (function):
                 Function to use for projection.
-        
+
         Returns:
-            torch.tensor: 
+            torch.tensor:
             Projected version of the input tensor of shape
             (batch * n_heads, seq_len, size_projected)
         """
@@ -132,7 +133,7 @@ class Attention(nn.Module, ABC):
         Args:
             query_heads (torch.tensor): queries of shape
                 (batch * n_heads, query_seq_len, d_k)
-            
+
             key_heads (torch.tensor): keys of shape
                 (batch * n_heads, key_seq_len, d_k)
 
