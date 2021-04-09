@@ -1,11 +1,56 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from abc import ABC, abstractmethod
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-class LSTMAttentionDecoder(nn.Module):
+class Decoder(nn.Module, ABC):
+    """[summary]
+
+    [extended_summary]
+
+    Args:
+        nn ([type]): [description]
+        ABC ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
+
+    def __init__(
+        self,
+        hidden_size,
+        output_size,
+        enc_hidden_size,
+        num_layers,
+        attention,
+        pretrained_emb=None,
+    ):
+        super(Decoder, self).__init__()
+
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.enc_hidden_size = enc_hidden_size
+        self.num_layers = num_layers
+        self.attention = attention
+
+        # initialize embeddings, if given
+        if pretrained_emb is None:
+            self.embedding = nn.Embedding(
+                output_size, hidden_size, padding_idx=0
+            )
+        else:
+            self.embedding = pretrained_emb
+
+        self.enc_projection = nn.Linear(enc_hidden_size, hidden_size)
+
+    @abstractmethod
+    def forward(self):
+        ...
+
+
+class LSTMAttentionDecoder(Decoder):
     """Decoder for a Seq2Seq network.
 
     Takes as input the lastly predicted output index and obtains the
@@ -17,40 +62,26 @@ class LSTMAttentionDecoder(nn.Module):
     """
 
     def __init__(
-        self, hidden_size, output_size, num_layers, pretrained_emb=None
+        self,
+        hidden_size,
+        output_size,
+        enc_hidden_size,
+        num_layers,
+        attention,
+        pretrained_emb=None,
     ):
-        super(LSTMAttentionDecoder, self).__init__()
-
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-
-        # initialize embeddings, if given
-        if pretrained_emb is None:
-            self.embedding = nn.Embedding(
-                output_size, hidden_size, padding_idx=0
-            )
-        else:
-            self.embedding = pretrained_emb
-
-        # the weights for the Bahdanau attention mechanism i.e.
-        # energy(s_t', h_t) = comb_attn_w * (enc_attn_w * h_t +
-        # dec_attn_w * s_t'), where s_t' is the decoder state at time
-        # t' and h_t is the encoder state at time t
-        self.enc_attn_w = nn.Linear(2 * hidden_size, hidden_size)
-        self.dec_attn_w = nn.Linear(hidden_size, hidden_size)
-        self.comb_attn_w = nn.Linear(hidden_size, 1)
-        # softmax for normalizing attention energies
-        self.attn_softmax = nn.Softmax(dim=-1)
-
-        # linear layer for scaling down the last encoder state in
-        # order to add it to the previous decoder state (bc the
-        # encoder is bidirectional, its states are double the size of
-        # decoder states)
-        self.scale_enc_hidden = nn.Linear(2 * hidden_size, hidden_size)
+        super().__init__(
+            hidden_size,
+            output_size,
+            enc_hidden_size,
+            num_layers,
+            attention,
+            pretrained_emb,
+        )
 
         # LSTM network with num_layers layers
         self.lstm = nn.LSTM(
-            hidden_size * 3,
+            hidden_size + enc_hidden_size,
             hidden_size,
             num_layers,
             batch_first=True,
@@ -61,50 +92,48 @@ class LSTMAttentionDecoder(nn.Module):
         # output vocabulary
         self.projection = nn.Linear(hidden_size, output_size)
 
-    def forward(self, y, enc_outputs, enc_hidden, hidden, cell):
+    def forward(self, dec_inputs, hidden, cell, enc_outputs):
         """Forward pass through the decoder.
 
-        Args: y: lastly predicted output with shape (batch, 1)
-            enc_outputs: sequence of encoder vectors of shape (batch,
-            seq_len, hidden_size * 2) enc_hidden: the last encoder
-            output of shape (batch, 1, hidden_size * 2) hidden: the
-            last hidden state of the lstm network of shape
-            (num_dec_layers, batch, hidden_size) cell: the last cell
-            state of the lstm network of shape (num_dec_layers, batch,
-            hidden_size)
+        The flow is as follows:
+            1. obtain embedding of decoder input
+            2. for every decoder embedding, obtain weighted context vectors
+            3. concatenate embedding and context vector
+            4. add the last encoder output to the previous hidden lstm states
+            5. forward pass through lstm
+            6. projection to vocabulary
+
+        Args:
+            dec_inputs (torch.tensor): decoder inputs of shape
+                (batch, dec_seq_len)
+            hidden (torch.tensor): decoder hidden states of shape
+                (num_dec_layers, batch, dec_hid)
+            cell (torch.tensor): decoder cell states of shape
+                (num_dec_layers, batch, dec_hid)
+            enc_outputs (torch.tensor): encoder outputs of shape
+                (batch, enc_seq_len, enc_hid)
+
+        Returns:
+            torch.tensor: unnormalized output scores for next token.
+            torch.tensor: current hidden state of decoder.
+            torch.tensor: current cell state of decoder.
         """
         # obtain embedding from lastly predicted symbol
-        embedding = self.embedding(y)
+        # shape: (batch, dec_seq_len, dec_hid)
+        embedding = self.embedding(dec_inputs)
 
-        # obtain unnormalized attention energies by using Bahdanau
-        # attention attn_energies is of shape (batch, 1, seq_len) and
-        # contains energies for current decoder state and all encoder
-        # states
-        attn_energies = torch.tanh(
-            self.dec_attn_w(embedding[:, :, None])
-            + self.enc_attn_w(enc_outputs[:, None])
-        )
-        attn_energies = self.comb_attn_w(attn_energies)
-        attn_energies = torch.squeeze(attn_energies, dim=-1)
+        # obtain weighted context vector
+        # shape: (batch, dec_seq_len, enc_hid)
+        context = self.attention(enc_outputs, enc_outputs, embedding)
 
-        # obtain attention scores by normalizing energies
-        attn_weights = F.softmax(attn_energies, dim=-1)
-        # weigth encoder outputs with attention scores
-        context = attn_weights[:, :, :, None] * enc_outputs[:, None]
-        # obtain weighted sum
-        context = torch.sum(context, dim=-2)
+        # concatenate embedding and context
+        combined = torch.cat([embedding, context], dim=-1)
+        # add last encoder output to all previous lstm hidden states
+        hidden = hidden + self.enc_projection(enc_outputs[None, :, -1])
 
-        # concatenate context and embedding
-        combined = torch.cat((embedding, context), dim=-1)
-        # scale last encoder state by a factor of 2
-        enc_hidden = self.scale_enc_hidden(enc_hidden)
-
-        # apply lstm network
-        out, (hidden, cell) = self.lstm(combined, (hidden + enc_hidden, cell))
-        # project to output vocabulary
+        # lstm forward pass + projection to vocabulary
+        out, (hidden, cell) = self.lstm(combined, [hidden, cell])
         out = self.projection(out)
-        # remove seq_len dimension
-        out = torch.squeeze(out, dim=1)
 
         return out, hidden, cell
 
