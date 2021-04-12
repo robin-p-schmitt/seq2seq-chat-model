@@ -4,3 +4,5 @@ whatsapp*.txt
 whatsapp
 saved
 *.zip
+.*
+*.ipynb
