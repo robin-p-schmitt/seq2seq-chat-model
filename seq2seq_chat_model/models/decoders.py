@@ -1,11 +1,14 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from abc import ABC, abstractmethod
+from seq2seq_chat_model.models.utils import positional_encoding
+
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-class Decoder(nn.Module, ABC):
+class AttentionDecoder(nn.Module, ABC):
     """[summary]
 
     [extended_summary]
@@ -20,37 +23,50 @@ class Decoder(nn.Module, ABC):
 
     def __init__(
         self,
-        hidden_size,
-        output_size,
+        dec_hidden_size,
         enc_hidden_size,
+        output_size,
         num_layers,
-        attention,
+        attention_module,
+        dec_seq_len,
+        enc_seq_len,
+        d_k=None,
+        d_v=None,
+        n_heads=1,
         pretrained_emb=None,
     ):
-        super(Decoder, self).__init__()
+        super(AttentionDecoder, self).__init__()
 
-        self.hidden_size = hidden_size
-        self.output_size = output_size
+        self.dec_hidden_size = dec_hidden_size
         self.enc_hidden_size = enc_hidden_size
+        self.output_size = output_size
         self.num_layers = num_layers
-        self.attention = attention
+        self.attention_mod = attention_module
+        self.dec_seq_len = dec_seq_len
+        self.enc_seq_len = enc_seq_len
+        self.d_k = d_k
+        self.d_v = d_v
+        self.n_heads = n_heads
 
         # initialize embeddings, if given
         if pretrained_emb is None:
             self.embedding = nn.Embedding(
-                output_size, hidden_size, padding_idx=0
+                output_size, dec_hidden_size, padding_idx=0
             )
         else:
             self.embedding = pretrained_emb
 
-        self.enc_projection = nn.Linear(enc_hidden_size, hidden_size)
+        if dec_hidden_size != enc_hidden_size:
+            self.enc_projection = nn.Linear(enc_hidden_size, dec_hidden_size)
+        else:
+            self.enc_projection = nn.Identity()
 
     @abstractmethod
     def forward(self):
         ...
 
 
-class LSTMAttentionDecoder(Decoder):
+class LSTMAttentionDecoder(AttentionDecoder):
     """Decoder for a Seq2Seq network.
 
     Takes as input the lastly predicted output index and obtains the
@@ -63,34 +79,55 @@ class LSTMAttentionDecoder(Decoder):
 
     def __init__(
         self,
-        hidden_size,
-        output_size,
+        dec_hidden_size,
         enc_hidden_size,
+        output_size,
         num_layers,
-        attention,
+        attention_module,
+        dec_seq_len,
+        enc_seq_len,
+        d_k=None,
+        d_v=None,
+        n_heads=1,
         pretrained_emb=None,
     ):
         super().__init__(
-            hidden_size,
-            output_size,
+            dec_hidden_size,
             enc_hidden_size,
+            output_size,
             num_layers,
-            attention,
-            pretrained_emb,
+            attention_module,
+            dec_seq_len,
+            enc_seq_len,
+            d_k=d_k,
+            d_v=d_v,
+            n_heads=n_heads,
+            pretrained_emb=pretrained_emb,
         )
 
         # LSTM network with num_layers layers
         self.lstm = nn.LSTM(
-            hidden_size + enc_hidden_size,
-            hidden_size,
-            num_layers,
+            self.dec_hidden_size + self.enc_hidden_size,
+            self.dec_hidden_size,
+            self.num_layers,
             batch_first=True,
             dropout=0.1,
         )
 
+        self.attention = self.attention_mod(
+            enc_hidden_size,
+            enc_seq_len,
+            dec_hidden_size,
+            dec_seq_len,
+            d_k,
+            d_v,
+            n_heads,
+            masked=False,
+        )
+
         # last layer which projects decoder state to the size of the
         # output vocabulary
-        self.projection = nn.Linear(hidden_size, output_size)
+        self.projection = nn.Linear(self.dec_hidden_size, self.output_size)
 
     def forward(self, dec_inputs, hidden, cell, enc_outputs):
         """Forward pass through the decoder.
@@ -128,8 +165,11 @@ class LSTMAttentionDecoder(Decoder):
 
         # concatenate embedding and context
         combined = torch.cat([embedding, context], dim=-1)
+
+        last_enc_out = self.enc_projection(enc_outputs[None, :, -1])
+
         # add last encoder output to all previous lstm hidden states
-        hidden = hidden + self.enc_projection(enc_outputs[None, :, -1])
+        hidden = hidden + last_enc_out
 
         # lstm forward pass + projection to vocabulary
         out, (hidden, cell) = self.lstm(combined, [hidden, cell])
@@ -140,5 +180,156 @@ class LSTMAttentionDecoder(Decoder):
     def init_hidden(self, batch_size):
         # initialize hidden state with zeros
         return torch.zeros(
-            self.num_layers, batch_size, self.hidden_size, device=device
+            self.num_layers, batch_size, self.dec_hidden_size, device=device
         )
+
+
+class TransformerDecoderBlock(nn.Module):
+    """"""
+
+    def __init__(
+        self,
+        hidden_size,
+        ff_size,
+        attention_module,
+        dec_seq_len,
+        enc_seq_len,
+        d_k,
+        d_v,
+        n_heads,
+    ):
+        super(TransformerDecoderBlock, self).__init__()
+
+        self.hidden_size = hidden_size
+
+        self.attention = attention_module(
+            hidden_size,
+            dec_seq_len,
+            hidden_size,
+            enc_seq_len,
+            d_k,
+            d_v,
+            n_heads,
+            masked=False,
+        )
+
+        self.masked_attention = attention_module(
+            hidden_size,
+            dec_seq_len,
+            hidden_size,
+            dec_seq_len,
+            d_k,
+            d_v,
+            n_heads,
+            masked=True,
+        )
+
+        self.layer_norm = nn.LayerNorm(hidden_size)
+        self.conv_ff1 = nn.Conv1d(hidden_size, ff_size, 1)
+        self.conv_ff2 = nn.Conv1d(ff_size, hidden_size, 1)
+
+    def forward(self, dec_inputs, enc_outputs):
+        """Forward pass of the Transformer encoder block.
+
+        Args:
+            enc_inputs (torch.tensor): input of shape
+                (batch, seq_len, hidden)
+
+        Returns:
+            torch.tensor: output of shape
+                (batch, seq_len, hidden)
+        """
+
+        context = self.masked_attention(*[dec_inputs] * 3)
+        res = context + dec_inputs
+        res = self.layer_norm(res)
+        context = self.attention(*[enc_outputs] * 2, dec_inputs)
+        res = context + res
+        res = self.layer_norm(res)
+        ff = self.conv_ff1(res.view(-1, self.hidden_size, 1))
+        ff = self.conv_ff2(F.relu(ff)).view(*res.shape[:2], self.hidden_size)
+        res = res + ff
+        res = self.layer_norm(res)
+
+        return res
+
+
+class TransformerDecoder(AttentionDecoder):
+    """Implementation of the Transformer encoder as described in:
+    https://arxiv.org/pdf/1706.03762.pdf.
+    """
+
+    def __init__(
+        self,
+        dec_hidden_size,
+        enc_hidden_size,
+        output_size,
+        num_layers,
+        attention_module,
+        dec_seq_len,
+        enc_seq_len,
+        d_k=None,
+        d_v=None,
+        n_heads=1,
+        ff_size=None,
+        pretrained_emb=None,
+    ):
+        super().__init__(
+            dec_hidden_size,
+            enc_hidden_size,
+            output_size,
+            num_layers,
+            attention_module,
+            dec_seq_len,
+            enc_seq_len,
+            d_k=d_k,
+            d_v=d_v,
+            n_heads=n_heads,
+            pretrained_emb=pretrained_emb,
+        )
+
+        if ff_size is None:
+            ff_size = dec_hidden_size * 4
+
+        self.pe = positional_encoding(dec_seq_len, self.dec_hidden_size)
+
+        self.blocks = nn.ModuleList(
+            [
+                TransformerDecoderBlock(
+                    self.dec_hidden_size,
+                    ff_size,
+                    attention_module,
+                    dec_seq_len,
+                    enc_seq_len,
+                    d_k,
+                    d_v,
+                    n_heads,
+                )
+                for _ in range(self.num_layers)
+            ]
+        )
+
+        self.projection = nn.Linear(self.dec_hidden_size, self.output_size)
+
+    def forward(self, dec_inputs, enc_outputs):
+        """Forward pass of the Transformer encoder.
+
+        Args:
+            enc_inputs (torch.tensor): inputs of shape
+                (batch, seq_len)
+        Returns:
+            torch.tensor: outputs of shape
+                (batch, seq_len, hidden)
+        """
+
+        embeddings = self.embedding(dec_inputs)
+        enc_outputs = self.enc_projection(enc_outputs)
+
+        outputs = embeddings + self.pe[None]
+
+        for block in self.blocks:
+            outputs = block(outputs, enc_outputs)
+
+        outputs = self.projection(outputs)
+
+        return outputs
