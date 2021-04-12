@@ -187,3 +187,34 @@ def clean_dec_output(sequence):
     sequence = sequence.replace("<new>", "\n")
 
     return sequence
+
+
+def positional_encoding(seq_len, hidden_size):
+    """Implementation of the positional encoding proposed in
+    https://arxiv.org/pdf/1706.03762.pdf.
+    """
+    # positions and dimensions
+    positions = torch.arange(0, seq_len)
+    dimensions = torch.arange(0, hidden_size, dtype=torch.float)
+
+    # the divisor term of the pe
+    div_term = torch.pow(10000, 2 * dimensions / hidden_size)
+    # the term before applying the sinusoids
+    inner = positions[:, None] / div_term[None, :]
+    # init pe with zeros
+    pe = torch.zeros(seq_len, hidden_size)
+    # apply sin/cos to all even/uneven dimensions
+    pe[:, 0::2] = torch.sin(inner[:, 0::2])
+    pe[:, 1::2] = torch.cos(inner[:, 1::2])
+
+    return pe
+
+
+def attention_mask(seq_len):
+    scores = torch.zeros(seq_len, seq_len)
+    for i in range(1, seq_len):
+        scores = scores + torch.diag(
+            torch.tensor([float("-inf")] * (seq_len - i)), i
+        )
+
+    return scores
