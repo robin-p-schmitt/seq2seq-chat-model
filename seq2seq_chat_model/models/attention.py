@@ -10,8 +10,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from abc import ABC
 from abc import abstractmethod
+from seq2seq_chat_model.models.utils import attention_mask
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+attention_types = ["additive"]
 
 
 class Attention(nn.Module, ABC):
@@ -39,7 +41,17 @@ class Attention(nn.Module, ABC):
             divisible by ``n_heads``.
     """
 
-    def __init__(self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1):
+    def __init__(
+        self,
+        d_key_val,
+        len_key_val,
+        d_query,
+        len_query,
+        d_k=None,
+        d_v=None,
+        n_heads=1,
+        masked=False,
+    ):
         """Initialize all basic variables needed for any attention mechanism.
 
         Raises:
@@ -49,10 +61,13 @@ class Attention(nn.Module, ABC):
         super(Attention, self).__init__()
 
         self.d_key_val = d_key_val
+        self.len_key_val = len_key_val
         self.d_query = d_query
+        self.len_query = len_query
         self.d_k = d_k
         self.d_v = d_v
         self.n_heads = n_heads
+        self.masked = masked
 
         # initialize ``d_k`` and ``d_v`` as ``d_key_val`` / ``n_heads`` if
         # not given
@@ -90,9 +105,23 @@ class Attention(nn.Module, ABC):
             groups=n_heads,
         )
 
+        if masked:
+            if len_key_val != len_query:
+                raise ValueError(
+                    "When using masked attention, the length of keys and queries needs to be identical!"
+                )
+            self.mask = attention_mask(len_key_val)
+        else:
+            self.mask = torch.tensor(0)
+
         # last projection layer which maps the concatenation of attention
         # heads to the output of the attention mechanism
         self.projection = nn.Linear(n_heads * self.d_v, d_key_val)
+
+        self.attention_scores = None
+
+    def get_attention_scores(self):
+        return self.attention_scores
 
     def _get_attention_heads(self, tensor, projection):
         """Apply attention heads to the input tensor.
@@ -163,8 +192,8 @@ class Attention(nn.Module, ABC):
                 query_seq_len, d_query)
 
         Returns:
-            torch.tensor: weighted context vector of shape (batch,
-                query_seq_len, d_key_val)
+            torch.tensor: weighted context vector of shape
+                (batch, query_seq_len, d_key_val)
         """
         # obtain projections
         key_heads = self._get_attention_heads(keys, self.key_projections)
@@ -174,9 +203,12 @@ class Attention(nn.Module, ABC):
         )
         # obtain unnormalized scores
         scores = self._scoring_function(query_heads, key_heads)
+        scores = scores.squeeze(-1)
+        scores = scores + self.mask[None]
 
         # apply softmax over key sequence and squeeze last dimension
-        scores = F.softmax(torch.squeeze(scores, -1), -1)
+        scores = F.softmax(scores, -1)
+        self.attention_scores = scores
 
         # obtain weighted sum of values
         context = torch.bmm(scores, val_heads)
@@ -206,8 +238,27 @@ class AdditiveAttention(Attention):
         U (torch.tensor): transform keys.
     """
 
-    def __init__(self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1):
-        super().__init__(d_key_val, d_query, d_k, d_v, n_heads)
+    def __init__(
+        self,
+        d_key_val,
+        len_key_val,
+        d_query,
+        len_query,
+        d_k=None,
+        d_v=None,
+        n_heads=1,
+        masked=False,
+    ):
+        super().__init__(
+            d_key_val,
+            len_key_val,
+            d_query,
+            len_query,
+            d_k=d_k,
+            d_v=d_v,
+            n_heads=n_heads,
+            masked=masked,
+        )
 
         self.v = nn.Linear(self.d_k, 1)
         self.W = nn.Linear(self.d_k, self.d_k)
@@ -234,8 +285,27 @@ class GeneralAttention(Attention):
         W (torch.tensor): transforms queries and keys.
     """
 
-    def __init__(self, d_key_val, d_query, d_k=None, d_v=None, n_heads=1):
-        super().__init__(d_key_val, d_query, d_k, d_v, n_heads)
+    def __init__(
+        self,
+        d_key_val,
+        len_key_val,
+        d_query,
+        len_query,
+        d_k=None,
+        d_v=None,
+        n_heads=1,
+        masked=False,
+    ):
+        super().__init__(
+            d_key_val,
+            len_key_val,
+            d_query,
+            len_query,
+            d_k=d_k,
+            d_v=d_v,
+            n_heads=n_heads,
+            masked=masked,
+        )
 
         self.W = nn.Linear(self.d_k, self.d_k)
 
