@@ -30,15 +30,14 @@ class Attention(nn.Module, ABC):
     dim(output) channels. This corresponds to ``n_heads`` Dense layers,
     each with dim(input) input neurons and dim(output) output neurons.
 
-    Attributes: d_key_val (int): the dimensionality of the keys and values.
-        d_query (int): the dimensionality of the queries. d_k (int,
-        optional): the dimensionality of the projected keys and queries.
-        Defaults to ``d_key_val`` / ``n_heads``.
+    Attributes: 
+        d_key_val (int): the dimensionality of the keys and values.
+        d_query (int): the dimensionality of the queries. 
+        d_k (int, optional): the dimensionality of the projected keys and queries.
+            Defaults to ``d_key_val`` / ``n_heads``.
         d_v (int, optional): the dimensionality of the projected queries.
-            Defaults to ``d_key_val`` / ``n_heads``. n_heads (int,
-            optional): the number of attention heads used. If either
-            ``d_k`` or ``d_v`` is ``None``, ``d_key_val`` needs to be
-            divisible by ``n_heads``.
+            Defaults to ``d_key_val`` / ``n_heads``.
+        n_heads (int, optional): the number of attention heads used. Defaults to 1.
     """
 
     def __init__(

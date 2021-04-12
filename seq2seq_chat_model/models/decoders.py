@@ -9,16 +9,25 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class AttentionDecoder(nn.Module, ABC):
-    """[summary]
+    """Base class for all decoders with attention mechanism.
 
-    [extended_summary]
-
-    Args:
-        nn ([type]): [description]
-        ABC ([type]): [description]
-
-    Returns:
-        [type]: [description]
+    Attributes:
+        dec_hidden_size (int): hidden size to use in decoder
+        enc_hidden_size (int): hidden size of the coupled encoder
+        output_size (int): vocabulary size to project to
+        num_layers (int): number of decoder layers
+        attention_module (attention.Attention): attention module to 
+            use for attention mechanism
+        dec_seq_len (int): length of decoder input sequence
+        enc_seq_len (int): length of encoder output sequences
+        d_k (int): dimensionality of projected keys/queries. Defaults
+            to ``dec_hidden_size`` / ``n_heads``.
+        d_v (int): dimensionality of projected values. Defaults
+            to ``dec_hidden_size`` / ``n_heads``.
+        n_heads (int): number of attention heads. Defaults to 1.
+        pretrained_emb (torch.nn.Embedding): embedding layer to 
+            use for initialization. If ``None``, embeddings are
+            initialized randomly.
     """
 
     def __init__(
@@ -75,6 +84,24 @@ class LSTMAttentionDecoder(AttentionDecoder):
     the context vector are concatenated and passed to an LSTM network.
     Additionally, the last encoder state is added to the previous
     decoder state in every time step.
+
+    Attributes:
+        dec_hidden_size (int): hidden size to use in decoder
+        enc_hidden_size (int): hidden size of the coupled encoder
+        output_size (int): vocabulary size to project to
+        num_layers (int): number of decoder layers
+        attention_module (attention.Attention): attention module to 
+            use for attention mechanism
+        dec_seq_len (int): length of decoder input sequence
+        enc_seq_len (int): length of encoder output sequences
+        d_k (int): dimensionality of projected keys/queries. Defaults
+            to ``dec_hidden_size`` / ``n_heads``.
+        d_v (int): dimensionality of projected values. Defaults
+            to ``dec_hidden_size`` / ``n_heads``.
+        n_heads (int): number of attention heads. Defaults to 1.
+        pretrained_emb (torch.nn.Embedding): embedding layer to 
+            use for initialization. If ``None``, embeddings are
+            initialized randomly.
     """
 
     def __init__(
@@ -185,7 +212,21 @@ class LSTMAttentionDecoder(AttentionDecoder):
 
 
 class TransformerDecoderBlock(nn.Module):
-    """"""
+    """Basic building block for the Transformer decoder.
+
+    Attributes:
+        hidden_size (int): hidden size
+        ff_size (int): hidden layer size of feed forward net
+        attention_module (attention.Attention): attention module to 
+            use for attention mechanism
+        dec_seq_len (int): length of decoder input sequence
+        enc_seq_len (int): length of encoder output sequences
+        d_k (int, optional): dimensionality of projected keys/queries. Defaults
+            to ``dec_hidden_size`` / ``n_heads``.
+        d_v (int, optional): dimensionality of projected values. Defaults
+            to ``dec_hidden_size`` / ``n_heads``.
+        n_heads (int, optional): number of attention heads. Defaults to 1.
+    """
 
     def __init__(
         self,
@@ -194,9 +235,9 @@ class TransformerDecoderBlock(nn.Module):
         attention_module,
         dec_seq_len,
         enc_seq_len,
-        d_k,
-        d_v,
-        n_heads,
+        d_k = None,
+        d_v = None,
+        n_heads = 1,
     ):
         super(TransformerDecoderBlock, self).__init__()
 
@@ -257,6 +298,26 @@ class TransformerDecoderBlock(nn.Module):
 class TransformerDecoder(AttentionDecoder):
     """Implementation of the Transformer encoder as described in:
     https://arxiv.org/pdf/1706.03762.pdf.
+
+    Attributes:
+        dec_hidden_size (int): hidden size to use in decoder
+        enc_hidden_size (int): hidden size of the coupled encoder
+        output_size (int): vocabulary size to project to
+        num_layers (int): number of decoder layers
+        attention_module (attention.Attention): attention module to 
+            use for attention mechanism
+        dec_seq_len (int): length of decoder input sequence
+        enc_seq_len (int): length of encoder output sequences
+        d_k (int, optional): dimensionality of projected keys/queries. Defaults
+            to ``dec_hidden_size`` / ``n_heads``.
+        d_v (int, optional): dimensionality of projected values. Defaults
+            to ``dec_hidden_size`` / ``n_heads``.
+        n_heads (int, optional): number of attention heads. Defaults to 1.
+        ff_size (int, optional): hidden layer size of feed forward net.
+            Defaults to ``dec_hidden_size`` * 4.
+        pretrained_emb (torch.nn.Embedding, optional): embedding layer to 
+            use for initialization. If ``None``, embeddings are
+            initialized randomly.
     """
 
     def __init__(

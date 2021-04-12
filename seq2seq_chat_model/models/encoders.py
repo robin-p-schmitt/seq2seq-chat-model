@@ -8,7 +8,15 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class Encoder(nn.Module, ABC):
-    """Base class for all encoders."""
+    """Base class for all encoders.
+    
+    Attributes:
+        input_size (int): vocabulary size
+        hidden_size (int): hidden size
+        num_layers (int): number of encoder layers
+        pretrained_emb (torch.nn.Module, optional): initializes the
+            embedding layer with the given layer
+    """
 
     def __init__(
         self, input_size, hidden_size, num_layers, pretrained_emb=None
@@ -38,6 +46,13 @@ class LSTMEncoder(Encoder):
     Takes a sequence of word indices as input and obtains the
     embeddings. The embeddings are then passed through a bi-LSTM
     network to produce a sequence of encoder vectors.
+
+    Attributes:
+        input_size (int): vocabulary size
+        hidden_size (int): hidden size
+        num_layers (int): number of encoder layers
+        pretrained_emb (torch.nn.Module, optional): initializes the
+            embedding layer with the given layer
     """
 
     def __init__(
@@ -91,6 +106,18 @@ class LSTMEncoder(Encoder):
 
 
 class TransformerEncoderBlock(nn.Module):
+    """Building block for the Transformer encoder.
+
+    Attributes:
+        hidden_size (int): hidden size
+        seq_len (int): length of the input sequences
+        attention_module (models.attention.Attention): attention
+            module reference to use for self-attention.
+        ff_size (int): size of the two-layer feed forward net
+        d_k (int): dimensionality of projected keys/queries
+        d_v (int): dimensionality of projected values
+        n_heads (int): number of attention heads used
+    """
     def __init__(
         self,
         hidden_size,
@@ -146,6 +173,25 @@ class TransformerEncoderBlock(nn.Module):
 class TransformerEncoder(Encoder):
     """Implementation of the Transformer encoder as described in:
     https://arxiv.org/pdf/1706.03762.pdf.
+
+    Attributes:
+        input_size (int): vocabulary size
+        hidden_size (int): hidden size
+        num_layers (int): number of encoder layers
+        seq_len (int): length of the input sequences
+        attention_module (models.attention.Attention): attention
+            module reference to use for self-attention.
+        ff_size (int, optional): size of the two-layer feed forward
+            net. Defaults to ``hidden_size`` * 4. 
+        d_k (int, optional): dimensionality of projected keys/queries.
+            Defaults to ``hidden_size`` / ``n_heads``.
+        d_v (int, optional): dimensionality of projected values. 
+            Defaults to ``hidden_size`` / ``n_heads``.
+        n_heads (int, optional): number of attention heads used.
+            Defaults to 1.
+        pretrained_emb (torch.nn.Module, optional): initializes the
+            embedding layer with the given layer. If ``None``,
+            embedding is initialized randomly.
     """
 
     def __init__(
