@@ -58,9 +58,7 @@ class TestAttention(unittest.TestCase):
             with self.subTest(module=module):
                 attention = module(
                     d_key_val=self.key_val_size,
-                    len_key_val=self.key_val_len,
                     d_query=self.query_size,
-                    len_query=self.query_len,
                     n_heads=self.n_heads,
                 )
                 context = attention(
@@ -79,9 +77,7 @@ class TestAttention(unittest.TestCase):
             with self.subTest(module=module):
                 attention = module(
                     d_key_val=self.query_size,
-                    len_key_val=self.query_len,
                     d_query=self.query_size,
-                    len_query=self.query_len,
                     n_heads=self.n_heads,
                 )
                 context = attention(
@@ -100,9 +96,7 @@ class TestAttention(unittest.TestCase):
             with self.subTest(module=module):
                 attention = module(
                     d_key_val=self.query_size,
-                    len_key_val=self.query_len,
                     d_query=self.query_size,
-                    len_query=self.query_len,
                     n_heads=self.n_heads,
                     masked=True,
                 )
@@ -123,9 +117,7 @@ class TestAttention(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     module(
                         d_key_val=self.query_size,
-                        len_key_val=self.query_len,
                         d_query=self.query_size,
-                        len_query=self.query_len,
                         n_heads=self.n_heads_error,
                     )
 
@@ -134,14 +126,14 @@ class TestAttention(unittest.TestCase):
         for module in self.attention_mod:
             with self.subTest(module=module):
                 with self.assertRaises(ValueError):
-                    module(
+                    attention = module(
                         d_key_val=self.key_val_size,
-                        len_key_val=self.key_val_len,
                         d_query=self.query_size,
-                        len_query=self.query_len,
                         n_heads=self.n_heads,
                         masked=True,
                     )
+
+                    attention(self.key_val_seq, self.key_val_seq, self.query_seq)
 
 
 class TestEncoders(unittest.TestCase):
@@ -176,7 +168,6 @@ class TestEncoders(unittest.TestCase):
         encoder = TransformerEncoder(
             input_size=self.vocab_size,
             hidden_size=self.hidden_size,
-            seq_len=self.seq_len,
             num_layers=self.num_layers,
             attention_module=DotProductAttention,
         )
@@ -220,8 +211,6 @@ class TestDecoders(unittest.TestCase):
             output_size=self.vocab_size,
             num_layers=self.num_layers,
             attention_module=DotProductAttention,
-            dec_seq_len=self.dec_seq_len,
-            enc_seq_len=self.enc_seq_len,
         )
         hidden = cell = decoder.init_hidden(self.batch_size)
 
@@ -240,8 +229,6 @@ class TestDecoders(unittest.TestCase):
             output_size=self.vocab_size,
             num_layers=self.num_layers,
             attention_module=DotProductAttention,
-            dec_seq_len=self.dec_seq_len,
-            enc_seq_len=self.enc_seq_len,
         )
 
         out = decoder(self.dec_input, self.enc_out)
@@ -260,8 +247,6 @@ class TestDecoders(unittest.TestCase):
             output_size=self.vocab_size,
             num_layers=self.num_layers,
             attention_module=AdditiveAttention,
-            dec_seq_len=self.dec_seq_len,
-            enc_seq_len=self.enc_seq_len,
             pretrained_emb=embedding,
         )
 
@@ -283,8 +268,6 @@ class TestDecoders(unittest.TestCase):
             output_size=self.vocab_size,
             num_layers=self.num_layers,
             attention_module=DotProductAttention,
-            dec_seq_len=self.dec_seq_len,
-            enc_seq_len=self.enc_seq_len,
             pretrained_emb=embedding,
         )
 
@@ -303,8 +286,6 @@ class TestDecoders(unittest.TestCase):
             output_size=self.vocab_size,
             num_layers=self.num_layers,
             attention_module=DotProductAttention,
-            dec_seq_len=self.dec_seq_len,
-            enc_seq_len=self.enc_seq_len,
         )
         hidden = cell = decoder.init_hidden(self.batch_size)
 
@@ -330,8 +311,6 @@ class TestDecoders(unittest.TestCase):
             output_size=self.vocab_size,
             num_layers=self.num_layers,
             attention_module=DotProductAttention,
-            dec_seq_len=self.dec_seq_len,
-            enc_seq_len=self.enc_seq_len,
         )
 
         out = decoder(
