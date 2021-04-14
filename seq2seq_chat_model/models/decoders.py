@@ -37,8 +37,6 @@ class AttentionDecoder(nn.Module, ABC):
         output_size,
         num_layers,
         attention_module,
-        dec_seq_len,
-        enc_seq_len,
         d_k=None,
         d_v=None,
         n_heads=1,
@@ -51,8 +49,6 @@ class AttentionDecoder(nn.Module, ABC):
         self.output_size = output_size
         self.num_layers = num_layers
         self.attention_mod = attention_module
-        self.dec_seq_len = dec_seq_len
-        self.enc_seq_len = enc_seq_len
         self.d_k = d_k
         self.d_v = d_v
         self.n_heads = n_heads
@@ -111,8 +107,6 @@ class LSTMAttentionDecoder(AttentionDecoder):
         output_size,
         num_layers,
         attention_module,
-        dec_seq_len,
-        enc_seq_len,
         d_k=None,
         d_v=None,
         n_heads=1,
@@ -124,8 +118,6 @@ class LSTMAttentionDecoder(AttentionDecoder):
             output_size,
             num_layers,
             attention_module,
-            dec_seq_len,
-            enc_seq_len,
             d_k=d_k,
             d_v=d_v,
             n_heads=n_heads,
@@ -143,9 +135,7 @@ class LSTMAttentionDecoder(AttentionDecoder):
 
         self.attention = self.attention_mod(
             enc_hidden_size,
-            enc_seq_len,
             dec_hidden_size,
-            dec_seq_len,
             d_k,
             d_v,
             n_heads,
@@ -233,8 +223,6 @@ class TransformerDecoderBlock(nn.Module):
         hidden_size,
         ff_size,
         attention_module,
-        dec_seq_len,
-        enc_seq_len,
         d_k = None,
         d_v = None,
         n_heads = 1,
@@ -245,9 +233,7 @@ class TransformerDecoderBlock(nn.Module):
 
         self.attention = attention_module(
             hidden_size,
-            dec_seq_len,
             hidden_size,
-            enc_seq_len,
             d_k,
             d_v,
             n_heads,
@@ -256,9 +242,7 @@ class TransformerDecoderBlock(nn.Module):
 
         self.masked_attention = attention_module(
             hidden_size,
-            dec_seq_len,
             hidden_size,
-            dec_seq_len,
             d_k,
             d_v,
             n_heads,
@@ -281,7 +265,7 @@ class TransformerDecoderBlock(nn.Module):
                 (batch, seq_len, hidden)
         """
 
-        context = self.masked_attention(*[dec_inputs] * 3)
+        context = self.masked_attention(*([dec_inputs] * 3))
         res = context + dec_inputs
         res = self.layer_norm(res)
         context = self.attention(*[enc_outputs] * 2, dec_inputs)
@@ -327,8 +311,6 @@ class TransformerDecoder(AttentionDecoder):
         output_size,
         num_layers,
         attention_module,
-        dec_seq_len,
-        enc_seq_len,
         d_k=None,
         d_v=None,
         n_heads=1,
@@ -341,8 +323,6 @@ class TransformerDecoder(AttentionDecoder):
             output_size,
             num_layers,
             attention_module,
-            dec_seq_len,
-            enc_seq_len,
             d_k=d_k,
             d_v=d_v,
             n_heads=n_heads,
@@ -352,16 +332,12 @@ class TransformerDecoder(AttentionDecoder):
         if ff_size is None:
             ff_size = dec_hidden_size * 4
 
-        self.pe = positional_encoding(dec_seq_len, self.dec_hidden_size)
-
         self.blocks = nn.ModuleList(
             [
                 TransformerDecoderBlock(
                     self.dec_hidden_size,
                     ff_size,
                     attention_module,
-                    dec_seq_len,
-                    enc_seq_len,
                     d_k,
                     d_v,
                     n_heads,
@@ -380,13 +356,19 @@ class TransformerDecoder(AttentionDecoder):
                 (batch, seq_len)
         Returns:
             torch.tensor: outputs of shape
-                (batch, seq_len, hidden)
+                (batch, seq_len, output_size)
         """
 
         embeddings = self.embedding(dec_inputs)
         enc_outputs = self.enc_projection(enc_outputs)
+        print(embeddings.shape)
+        print(enc_outputs.shape)
 
-        outputs = embeddings + self.pe[None]
+        pe = positional_encoding(dec_inputs.shape[1], self.dec_hidden_size)
+
+        outputs = embeddings + pe[None]
+
+        print(outputs.shape)
 
         for block in self.blocks:
             outputs = block(outputs, enc_outputs)

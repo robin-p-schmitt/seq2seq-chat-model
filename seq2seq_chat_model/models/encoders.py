@@ -121,7 +121,6 @@ class TransformerEncoderBlock(nn.Module):
     def __init__(
         self,
         hidden_size,
-        seq_len,
         attention_module,
         ff_size,
         d_k,
@@ -134,9 +133,7 @@ class TransformerEncoderBlock(nn.Module):
 
         self.attention = attention_module(
             hidden_size,
-            seq_len,
             hidden_size,
-            seq_len,
             d_k,
             d_v,
             n_heads,
@@ -198,7 +195,6 @@ class TransformerEncoder(Encoder):
         self,
         input_size,
         hidden_size,
-        seq_len,
         num_layers,
         attention_module,
         ff_size=None,
@@ -211,7 +207,6 @@ class TransformerEncoder(Encoder):
             input_size, hidden_size, num_layers, pretrained_emb=pretrained_emb
         )
 
-        self.pe = positional_encoding(seq_len, self.hidden_size)
         if ff_size is None:
             ff_size = hidden_size * 4
 
@@ -219,7 +214,6 @@ class TransformerEncoder(Encoder):
             [
                 TransformerEncoderBlock(
                     hidden_size,
-                    seq_len,
                     attention_module,
                     ff_size,
                     d_k,
@@ -242,7 +236,9 @@ class TransformerEncoder(Encoder):
         """
 
         embeddings = self.embedding(enc_inputs)
-        outputs = embeddings + self.pe[None]
+        
+        pe = positional_encoding(enc_inputs.shape[1], self.hidden_size)
+        outputs = embeddings + pe[None]
 
         for block in self.blocks:
             outputs = block(outputs)
