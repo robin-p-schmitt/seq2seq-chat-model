@@ -1,7 +1,5 @@
 import torch
 import torch.nn.functional as F
-import operator
-import numpy as np
 import nltk
 from seq2seq_chat_model.data.prepare_data import (
     replace_digits,
@@ -31,56 +29,111 @@ def tokenize_message(message: str):
     return group
 
 
-def get_encoder_input(question_group: List[List[str]], dataset):
+def get_encoder_input(question_group: List[List[str]], vocab, max_length, new_token, unk_token, pad_token):
+    """Transform messages in natural language into encoder-readable input.
+
+    Individual messages are connected using the <new> token to symbolize
+    the end of an individual message. The tokens are then replaced by
+    their corresponding index in the vocabulary. Lastly, the message
+    is either trimmed or padded to match the given max length.
+
+    Args:
+        question_group (List[List[str]]): messages are given as lists of strings
+            and multiple consecutive messages of the same person are given as lists
+            of lists of strings.
+        vocab (dict): vocabulary which maps string tokens to unique indices.
+        max_length (int): the length of the returned messages.
+        new_token (str): string used as new token to indicated the end of an 
+            individual message.
+        unk_token (str): string used as unknown token.
+        pad_token (str): string used as padding token.
+
+    Returns:
+        torch.tensor: 1d tensor containing the indices of the tokens of the message.
+    """
     # link together sequences of one group with the <new> token e.g.
     # question_group = [["hey"], ["how", "are", "you", "?"]] ->
     # question = ["hey", "<new>", "how", "are", "you", "?"]
-    question = [token for seq in question_group for token in seq + ["<new>"]]
+    question = [token for seq in question_group for token in seq + [new_token]]
     # replace every token with its unique index or with the <unk> index
     # if it is not in the vocabulary
     question = [
-        dataset.vocab[token]
-        if token in dataset.vocab
-        else dataset.vocab["<unk>"]
+        vocab[token]
+        if token in vocab
+        else vocab[unk_token]
         for token in question
     ]
 
     # either cut off long sequences or pad short sequences so that
     # every sequence has length max_length
-    question = question[: dataset.max_length] + [dataset.vocab["<pad>"]] * max(
-        dataset.max_length - len(question), 0
+    question = question[: max_length] + [vocab[pad_token]] * max(
+        max_length - len(question), 0
     )
 
     return torch.tensor(question)
 
 
-def get_decoder_input(answer_group: List[List[str]], dataset):
+def get_decoder_input(answer_group: List[List[str]], vocab, max_length, new_token, unk_token, pad_token, sos_token, eos_token):
+    """Transform messages in natural language into decoder-readable input.
+
+    Individual messages are connected using the <new> token to symbolize
+    the end of an individual message. The tokens are then replaced by
+    their corresponding index in the vocabulary. Lastly, the message
+    is either trimmed or padded to match the given max length and its further
+    extended with a start-of-sequence and an end-of-sequence token.
+
+    Args:
+        question_group (List[List[str]]): messages are given as lists of strings
+            and multiple consecutive messages of the same person are given as lists
+            of lists of strings.
+        vocab (dict): vocabulary which maps string tokens to unique indices.
+        max_length (int): the length of the returned messages.
+        new_token (str): string used as new token to indicated the end of an 
+            individual message.
+        unk_token (str): string used as unknown token.
+        pad_token (str): string used as padding token.
+        sos_token (str): string used as start-of-sequence token.
+        eos_token (str): string used as end-of-sequence token.
+
+    Returns:
+        torch.tensor: 1d tensor containing the indices of the tokens of the message.
+    """
     # link together sequences of one group with the <new> token e.g.
     # question_group = [["hey"], ["how", "are", "you", "?"]] ->
     # question = ["hey", "<new>", "how", "are", "you", "?"]
-    answer = [token for seq in answer_group for token in seq + ["<new>"]]
+    answer = [token for seq in answer_group for token in seq + [new_token]]
     # replace every token with its unique index or with the <unk> index
     # if it is not in the vocabulary
     answer = [
-        dataset.vocab[token]
-        if token in dataset.vocab
-        else dataset.vocab["<unk>"]
+        vocab[token]
+        if token in vocab
+        else vocab[unk_token]
         for token in answer
     ]
 
     # additionally, add sos and eos tokens to start and end of the
     # answer
     answer = (
-        [dataset.vocab["<start>"]]
-        + answer[: dataset.max_length - 2]
-        + [dataset.vocab["<stop>"]]
-        + [dataset.vocab["<pad>"]]
-        * max(dataset.max_length - len(answer) - 2, 0)
+        [vocab[sos_token]]
+        + answer[: max_length - 2]
+        + [vocab[eos_token]]
+        + [vocab[pad_token]]
+        * max(max_length - len(answer) - 2, 0)
     )
 
     return torch.tensor(answer)
 
 def get_encoding_rnn(input_tensor, encoder):
+    """Given an input, get encoder sequence from recurrent encoder.
+
+    Args:
+        input_tensor (torch.tensor): input of shape (batch_size, seq_len)
+        encoder (torch.module): recurrent encoder which expects and returns
+            three tensors (in/out, hidden state, cell state)
+
+    Returns:
+        torch.tensor: output of shape (batch_size, seq_len, hidden_size)
+    """
     batch_size = input_tensor.shape[0]
     hidden = cell = encoder.init_hidden(batch_size)
 
@@ -89,9 +142,31 @@ def get_encoding_rnn(input_tensor, encoder):
     return out
 
 def get_encoding_trans(input_tensor, encoder):
+    """Given an input, get encoder sequence from Transformer-like encoder.
+
+    Args:
+        input_tensor (torch.tensor): input of shape (batch_size, seq_len)
+        encoder (torch.module): Transformer-like encoder which expects
+        and returns only one tensor (input and output)
+
+    Returns:
+        torch.tensor: output of shape (batch_size, seq_len, hidden_size)
+    """
     return encoder(input_tensor)
 
 def get_decoding_rnn(target_tensor, enc_outputs, decoder):
+    """Given an input, get decoder sequence from recurrent decoder.
+
+    Args:
+        target_tensor (torch.tensor): input of shape
+            (batch_size, seq_len)
+        decoder (torch.module): recurrent decoder which expects 4 inputs
+            (previous outputs, hidden, cell, enc_outputs) and produces
+            3 outputs (out, hidden, cell)
+
+    Returns:
+        torch.tensor: output of shape (batch_size, seq_len, vocab_size)
+    """
     batch_size = target_tensor.shape[0]
     dec_hidden = dec_cell = decoder.init_hidden(batch_size)
 
@@ -109,10 +184,38 @@ def get_decoding_rnn(target_tensor, enc_outputs, decoder):
     return torch.cat(dec_outputs, dim = 1)
 
 def get_decoding_trans(target_tensor, enc_outputs, decoder):
+    """Given an input, get decoder sequence from Transformer-like decoder.
+
+    Args:
+        target_tensor (torch.tensor): input of shape
+            (batch_size, seq_len)
+        decoder (torch.module): recurrent decoder which expects 2 inputs
+            (previous outputs, enc_outputs) and produces
+            1 output (output)
+
+    Returns:
+        torch.tensor: output of shape (batch_size, seq_len, vocab_size)
+    """
     return decoder(target_tensor, enc_outputs)
 
 def decode_beam(input_tensor, encoder, decoder, encoding_func, decoding_func, beam_width, sos_index, num_steps):
-    """Return the beam_width top predictions of the decoder given an input."""
+    """[summary]
+
+    [extended_summary]
+
+    Args:
+        input_tensor ([type]): [description]
+        encoder ([type]): [description]
+        decoder ([type]): [description]
+        encoding_func ([type]): [description]
+        decoding_func ([type]): [description]
+        beam_width ([type]): [description]
+        sos_index ([type]): [description]
+        num_steps ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
     batch_size = input_tensor.shape[0]
 
     with torch.no_grad():
@@ -129,13 +232,13 @@ def decode_beam(input_tensor, encoder, decoder, encoding_func, decoding_func, be
         # top len 1 sequences of shape (batch, beam_width, 1)
         top_seqs = top_k[1].transpose(1, 2)
         # corresponding log probs of shape (batch, beam_width)
-        top_log_probs =  torch.log(top_k[0]).squeeze()
-        print(top_seqs.shape)
-        print(top_log_probs.shape)
-                 
+        top_log_probs =  torch.log(top_k[0]).squeeze(dim = 1)
+
+        # encoder outputs stay the same across beams
+        enc_outputs = enc_outputs.repeat_interleave(repeats = beam_width, dim = 0)  
 
         # do num_steps decoding steps
-        for i in range(num_steps):
+        for i in range(num_steps - 1):
 
             # merge batch and beam width dimensions
             # shape (batch * beam_width, seq_len)
@@ -163,21 +266,37 @@ def decode_beam(input_tensor, encoder, decoder, encoding_func, decoding_func, be
             log_probs = log_probs.view(batch_size, beam_width * beam_width)
             # get the new k top beams
             top_log_probs, top_indices = torch.topk(log_probs, k = beam_width, dim = -1)
+            # expand indices to match the sequence dimensions
+            top_indices = top_indices[:, :, None].expand(-1, -1, seqs.shape[-1])
             
             # select the new top sequences as the top indices of the probabilities
-            top_seqs = seqs[torch.arange(seqs.shape[0]), top_indices],
+            top_seqs = seqs.gather(dim = 1, index = top_indices)
 
+    # convert log probs to probs
     top_probs = torch.exp(top_log_probs)
 
     return top_seqs, top_probs
 
 
-def clean_dec_output(sequence):
+def format_dec_output(sequence, vocab):
+    """Format decoder output into readable, individual messages.
+
+    Removes <pad> and <stop> tokens and splits by <new> tokens.
+
+    Args:
+        sequence (List[torch.tensor(int)]): decoder output indices.
+
+    Returns:
+        List[str]: list of individual string sentences.
+    """
+
+    sequence = [vocab[token.item()] for token in sequence]
     sequence = [
         token for token in sequence if token != "<pad>" and token != "<stop>"
     ]
     sequence = " ".join(sequence)
-    sequence = sequence.replace("<new>", "\n")
+    sequence = sequence.split("<new>")
+    sequence = list(map(str.strip, sequence))
 
     return sequence
 
@@ -204,8 +323,23 @@ def positional_encoding(seq_len, hidden_size):
 
 
 def attention_mask(seq_len):
+    """Return simple attention mask.
+
+    Returns a 0 zero matrix with all values above the
+    main diagonal set to negative infinity.
+    When used for masked attention, this means that each
+    token only attends to tokens up to itself and not to
+    future tokens.
+
+    Args:
+        seq_len (int): dimension of returned matrix.
+
+    Returns:
+        torch.tensor: attention mask.
+    """
     scores = torch.zeros(seq_len, seq_len)
     for i in range(1, seq_len):
+        # add diagonal of -inf to the zero matrix
         scores = scores + torch.diag(
             torch.tensor([float("-inf")] * (seq_len - i)), i
         )
