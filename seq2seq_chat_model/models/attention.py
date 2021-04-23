@@ -187,14 +187,9 @@ class Attention(nn.Module, ABC):
         query_heads = self._get_attention_heads(
             queries, self.query_projections
         )
-        print("---------------")
-        print(key_heads.shape)
-        print(val_heads.shape)
-        print(query_heads.shape)
-        print("---------------")
+        
         # obtain unnormalized scores
         scores = self._scoring_function(query_heads, key_heads)
-        print("Scores: ", scores.shape)
 
         # if masked attention is used, mask out illegal connections before softmax
         if self.masked:
@@ -203,8 +198,6 @@ class Attention(nn.Module, ABC):
                     "When using masked attention, the length of keys and queries needs to be identical!"
                 )
             scores = scores + attention_mask(query_heads.shape[1])[None]
-
-        print("masked Scores: ", scores.shape)
 
         # apply softmax over key sequence and squeeze last dimension
         scores = F.softmax(scores, -1)

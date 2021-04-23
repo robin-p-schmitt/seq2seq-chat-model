@@ -361,14 +361,10 @@ class TransformerDecoder(AttentionDecoder):
 
         embeddings = self.embedding(dec_inputs)
         enc_outputs = self.enc_projection(enc_outputs)
-        print(embeddings.shape)
-        print(enc_outputs.shape)
 
         pe = positional_encoding(dec_inputs.shape[1], self.dec_hidden_size)
 
         outputs = embeddings + pe[None]
-
-        print(outputs.shape)
 
         for block in self.blocks:
             outputs = block(outputs, enc_outputs)
