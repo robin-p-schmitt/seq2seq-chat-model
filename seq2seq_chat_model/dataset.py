@@ -72,6 +72,11 @@ class ChatDataset(Dataset):
             sequences = self._get_sequences(path)
             data += sequences
 
+        if len(data) == 0:
+            raise ValueError(
+                "No data could be extracted from the given files. Try checking the formatting of the files."
+            )
+
         return data
 
     def _get_sequences(self, path):
@@ -85,6 +90,8 @@ class ChatDataset(Dataset):
                 split = re.findall("(.+?)\t(.+?)\n", line)
                 if split:
                     question_group, answer_group = split[0]
+                else:
+                    continue
 
                 # parse the strings to Python lists, e.g. question_group =
                 # ["hey", "how are you?"] and answer_group = ["good", "what
@@ -200,7 +207,38 @@ class ChatDataset(Dataset):
         # print(self.data[index])
         question_group, answer_group = self.data[index]
 
-        question = get_encoder_input(question_group, self)
-        answer = get_decoder_input(answer_group, self)
+        question = get_encoder_input(
+            question_group,
+            self.vocab,
+            self.max_length,
+            "<new>",
+            "<unk>",
+            "<pad>",
+        )
+        answer = get_decoder_input(
+            answer_group,
+            self.vocab,
+            self.max_length,
+            "<new>",
+            "<unk>",
+            "<pad>",
+            "<start>",
+            "<stop>",
+        )
 
-        return (torch.tensor(question), torch.tensor(answer))
+        return (torch.LongTensor(question), torch.LongTensor(answer))
+
+
+class MockDataset(Dataset):
+    """A dataset for testing purposes."""
+
+    def __init__(self) -> None:
+        self.vocab = {i: i for i in range(10)}
+        self.x = torch.LongTensor(torch.randint(0, 10, (100, 10)))
+        self.y = torch.LongTensor(torch.randint(0, 10, (100, 10)))
+
+    def __len__(self) -> int:
+        return self.x.shape[0]
+
+    def __getitem__(self, index: int):
+        return self.x[index], self.y[index]

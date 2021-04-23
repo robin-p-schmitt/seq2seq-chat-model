@@ -30,9 +30,9 @@ class Attention(nn.Module, ABC):
     dim(output) channels. This corresponds to ``n_heads`` Dense layers,
     each with dim(input) input neurons and dim(output) output neurons.
 
-    Attributes: 
+    Attributes:
         d_key_val (int): the dimensionality of the keys and values.
-        d_query (int): the dimensionality of the queries. 
+        d_query (int): the dimensionality of the queries.
         d_k (int, optional): the dimensionality of the projected keys and queries.
             Defaults to ``d_key_val`` / ``n_heads``.
         d_v (int, optional): the dimensionality of the projected queries.
@@ -43,9 +43,7 @@ class Attention(nn.Module, ABC):
     def __init__(
         self,
         d_key_val,
-        len_key_val,
         d_query,
-        len_query,
         d_k=None,
         d_v=None,
         n_heads=1,
@@ -60,9 +58,7 @@ class Attention(nn.Module, ABC):
         super(Attention, self).__init__()
 
         self.d_key_val = d_key_val
-        self.len_key_val = len_key_val
         self.d_query = d_query
-        self.len_query = len_query
         self.d_k = d_k
         self.d_v = d_v
         self.n_heads = n_heads
@@ -103,15 +99,6 @@ class Attention(nn.Module, ABC):
             kernel_size=1,
             groups=n_heads,
         )
-
-        if masked:
-            if len_key_val != len_query:
-                raise ValueError(
-                    "When using masked attention, the length of keys and queries needs to be identical!"
-                )
-            self.mask = attention_mask(len_key_val)
-        else:
-            self.mask = torch.tensor(0)
 
         # last projection layer which maps the concatenation of attention
         # heads to the output of the attention mechanism
@@ -200,10 +187,17 @@ class Attention(nn.Module, ABC):
         query_heads = self._get_attention_heads(
             queries, self.query_projections
         )
+
         # obtain unnormalized scores
         scores = self._scoring_function(query_heads, key_heads)
-        scores = scores.squeeze(-1)
-        scores = scores + self.mask[None]
+
+        # if masked attention is used, mask out illegal connections before softmax
+        if self.masked:
+            if key_heads.shape[1] != query_heads.shape[1]:
+                raise ValueError(
+                    "When using masked attention, the length of keys and queries needs to be identical!"
+                )
+            scores = scores + attention_mask(query_heads.shape[1])[None]
 
         # apply softmax over key sequence and squeeze last dimension
         scores = F.softmax(scores, -1)
@@ -240,9 +234,7 @@ class AdditiveAttention(Attention):
     def __init__(
         self,
         d_key_val,
-        len_key_val,
         d_query,
-        len_query,
         d_k=None,
         d_v=None,
         n_heads=1,
@@ -250,9 +242,7 @@ class AdditiveAttention(Attention):
     ):
         super().__init__(
             d_key_val,
-            len_key_val,
             d_query,
-            len_query,
             d_k=d_k,
             d_v=d_v,
             n_heads=n_heads,
@@ -269,6 +259,8 @@ class AdditiveAttention(Attention):
                 self.W(query_heads[:, :, None]) + self.U(key_heads[:, None])
             )
         )
+
+        scores = scores.squeeze(-1)
         return scores
 
 
@@ -287,9 +279,7 @@ class GeneralAttention(Attention):
     def __init__(
         self,
         d_key_val,
-        len_key_val,
         d_query,
-        len_query,
         d_k=None,
         d_v=None,
         n_heads=1,
@@ -297,9 +287,7 @@ class GeneralAttention(Attention):
     ):
         super().__init__(
             d_key_val,
-            len_key_val,
             d_query,
-            len_query,
             d_k=d_k,
             d_v=d_v,
             n_heads=n_heads,

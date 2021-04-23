@@ -9,7 +9,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class Encoder(nn.Module, ABC):
     """Base class for all encoders.
-    
+
     Attributes:
         input_size (int): vocabulary size
         hidden_size (int): hidden size
@@ -118,10 +118,10 @@ class TransformerEncoderBlock(nn.Module):
         d_v (int): dimensionality of projected values
         n_heads (int): number of attention heads used
     """
+
     def __init__(
         self,
         hidden_size,
-        seq_len,
         attention_module,
         ff_size,
         d_k,
@@ -134,9 +134,7 @@ class TransformerEncoderBlock(nn.Module):
 
         self.attention = attention_module(
             hidden_size,
-            seq_len,
             hidden_size,
-            seq_len,
             d_k,
             d_v,
             n_heads,
@@ -182,10 +180,10 @@ class TransformerEncoder(Encoder):
         attention_module (models.attention.Attention): attention
             module reference to use for self-attention.
         ff_size (int, optional): size of the two-layer feed forward
-            net. Defaults to ``hidden_size`` * 4. 
+            net. Defaults to ``hidden_size`` * 4.
         d_k (int, optional): dimensionality of projected keys/queries.
             Defaults to ``hidden_size`` / ``n_heads``.
-        d_v (int, optional): dimensionality of projected values. 
+        d_v (int, optional): dimensionality of projected values.
             Defaults to ``hidden_size`` / ``n_heads``.
         n_heads (int, optional): number of attention heads used.
             Defaults to 1.
@@ -198,7 +196,6 @@ class TransformerEncoder(Encoder):
         self,
         input_size,
         hidden_size,
-        seq_len,
         num_layers,
         attention_module,
         ff_size=None,
@@ -211,7 +208,6 @@ class TransformerEncoder(Encoder):
             input_size, hidden_size, num_layers, pretrained_emb=pretrained_emb
         )
 
-        self.pe = positional_encoding(seq_len, self.hidden_size)
         if ff_size is None:
             ff_size = hidden_size * 4
 
@@ -219,7 +215,6 @@ class TransformerEncoder(Encoder):
             [
                 TransformerEncoderBlock(
                     hidden_size,
-                    seq_len,
                     attention_module,
                     ff_size,
                     d_k,
@@ -242,7 +237,9 @@ class TransformerEncoder(Encoder):
         """
 
         embeddings = self.embedding(enc_inputs)
-        outputs = embeddings + self.pe[None]
+
+        pe = positional_encoding(enc_inputs.shape[1], self.hidden_size)
+        outputs = embeddings + pe[None]
 
         for block in self.blocks:
             outputs = block(outputs)
