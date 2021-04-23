@@ -73,7 +73,9 @@ class ChatDataset(Dataset):
             data += sequences
 
         if len(data) == 0:
-            raise ValueError("No data could be extracted from the given files. Try checking the formatting of the files.")
+            raise ValueError(
+                "No data could be extracted from the given files. Try checking the formatting of the files."
+            )
 
         return data
 
@@ -205,7 +207,38 @@ class ChatDataset(Dataset):
         # print(self.data[index])
         question_group, answer_group = self.data[index]
 
-        question = get_encoder_input(question_group, self.vocab, self.max_length, "<new>", "<unk>", "<pad>")
-        answer = get_decoder_input(answer_group, self.vocab, self.max_length, "<new>", "<unk>", "<pad>", "<start>", "<stop>")
+        question = get_encoder_input(
+            question_group,
+            self.vocab,
+            self.max_length,
+            "<new>",
+            "<unk>",
+            "<pad>",
+        )
+        answer = get_decoder_input(
+            answer_group,
+            self.vocab,
+            self.max_length,
+            "<new>",
+            "<unk>",
+            "<pad>",
+            "<start>",
+            "<stop>",
+        )
 
         return (torch.LongTensor(question), torch.LongTensor(answer))
+
+
+class MockDataset(Dataset):
+    """A dataset for testing purposes."""
+
+    def __init__(self) -> None:
+        self.vocab = {i: i for i in range(10)}
+        self.x = torch.LongTensor(torch.randint(0, 10, (100, 10)))
+        self.y = torch.LongTensor(torch.randint(0, 10, (100, 10)))
+
+    def __len__(self) -> int:
+        return self.x.shape[0]
+
+    def __getitem__(self, index: int):
+        return self.x[index], self.y[index]

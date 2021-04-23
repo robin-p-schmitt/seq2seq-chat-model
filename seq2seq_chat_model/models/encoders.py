@@ -9,7 +9,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class Encoder(nn.Module, ABC):
     """Base class for all encoders.
-    
+
     Attributes:
         input_size (int): vocabulary size
         hidden_size (int): hidden size
@@ -118,6 +118,7 @@ class TransformerEncoderBlock(nn.Module):
         d_v (int): dimensionality of projected values
         n_heads (int): number of attention heads used
     """
+
     def __init__(
         self,
         hidden_size,
@@ -179,10 +180,10 @@ class TransformerEncoder(Encoder):
         attention_module (models.attention.Attention): attention
             module reference to use for self-attention.
         ff_size (int, optional): size of the two-layer feed forward
-            net. Defaults to ``hidden_size`` * 4. 
+            net. Defaults to ``hidden_size`` * 4.
         d_k (int, optional): dimensionality of projected keys/queries.
             Defaults to ``hidden_size`` / ``n_heads``.
-        d_v (int, optional): dimensionality of projected values. 
+        d_v (int, optional): dimensionality of projected values.
             Defaults to ``hidden_size`` / ``n_heads``.
         n_heads (int, optional): number of attention heads used.
             Defaults to 1.
@@ -236,7 +237,7 @@ class TransformerEncoder(Encoder):
         """
 
         embeddings = self.embedding(enc_inputs)
-        
+
         pe = positional_encoding(enc_inputs.shape[1], self.hidden_size)
         outputs = embeddings + pe[None]
 

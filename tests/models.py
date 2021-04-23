@@ -133,7 +133,9 @@ class TestAttention(unittest.TestCase):
                         masked=True,
                     )
 
-                    attention(self.key_val_seq, self.key_val_seq, self.query_seq)
+                    attention(
+                        self.key_val_seq, self.key_val_seq, self.query_seq
+                    )
 
 
 class TestEncoders(unittest.TestCase):

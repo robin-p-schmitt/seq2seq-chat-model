@@ -30,9 +30,9 @@ class Attention(nn.Module, ABC):
     dim(output) channels. This corresponds to ``n_heads`` Dense layers,
     each with dim(input) input neurons and dim(output) output neurons.
 
-    Attributes: 
+    Attributes:
         d_key_val (int): the dimensionality of the keys and values.
-        d_query (int): the dimensionality of the queries. 
+        d_query (int): the dimensionality of the queries.
         d_k (int, optional): the dimensionality of the projected keys and queries.
             Defaults to ``d_key_val`` / ``n_heads``.
         d_v (int, optional): the dimensionality of the projected queries.
@@ -187,7 +187,7 @@ class Attention(nn.Module, ABC):
         query_heads = self._get_attention_heads(
             queries, self.query_projections
         )
-        
+
         # obtain unnormalized scores
         scores = self._scoring_function(query_heads, key_heads)
 

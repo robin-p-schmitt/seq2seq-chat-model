@@ -1,85 +1,128 @@
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from tqdm import tqdm
 from seq2seq_chat_model.dataset import ChatDataset
 from seq2seq_chat_model.models.encoders import LSTMEncoder
 from seq2seq_chat_model.models.decoders import LSTMAttentionDecoder
+from seq2seq_chat_model.models.utils import decode_beam
 import os
 from pathlib import Path
 import gensim
 import numpy as np
 import logging
+from nltk.translate import bleu_score
+
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print("Using " + str(device) + " as device.")
 
-def train_step(input_tensor, target_tensor, encoder, decoder, encoder_opt, decoder_opt, criterion, encode_func, decode_func):
+
+def train_step(
+    input_tensor,
+    target_tensor,
+    encoder,
+    decoder,
+    criterion,
+    encode_func,
+    decode_func,
+):
     input_tensor = input_tensor.to(device)
     target_tensor = target_tensor.to(device)
-
-    encoder_opt.zero_grad()
-    decoder_opt.zero_grad()
 
     enc_outputs = encode_func(input_tensor, encoder)
 
     dec_outputs = decode_func(target_tensor[:, :-1], enc_outputs, decoder)
 
-    loss = criterion(dec_outputs.view(-1, dec_outputs.shape[-1]), target_tensor[:, 1:].view(-1))
-
-    loss.backward()
-    encoder_opt.step()
-    decoder_opt.step()
+    loss = criterion(
+        dec_outputs.reshape(-1, dec_outputs.shape[-1]),
+        target_tensor[:, 1:].reshape(-1),
+    )
 
     return loss
 
-def evaluate_model(input_tensor, target_tensor, encoder, decoder, encode_func, decode_func, beam_width = 3):
-    ...
 
-
-
-
-def train(encoder, decoder, dataset, epochs=500, batch_size=512):
+def train_epoch(
+    encoder,
+    decoder,
+    encoder_opt,
+    decoder_opt,
+    criterion,
+    encode_func,
+    decode_func,
+    train_loader,
+    val_loader=None,
+):
     """Train Seq2Seq network on a given dataset"""
-    # define trainloader
-    trainloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, drop_last=True
-    )
-
-    # use cross entropy as loss and Adam as optimizer
-    criterion = torch.nn.CrossEntropyLoss()
-    encoder_opt = torch.optim.Adam(encoder.parameters())
-    decoder_opt = torch.optim.Adam(decoder.parameters())
-
-    vocab_size = len(dataset.vocab)
-    hidden_size = encoder.hidden_size
 
     encoder.train()
     decoder.train()
 
-    for epoch in tqdm(range(epochs)):
-        running_loss = 0
-        for i, data in enumerate(trainloader):
-            loss = train_step(*data, encoder, decoder, encoder_opt, decoder_opt, criterion)
+    train_loss = 0
+    val_loss = None
 
-            # add to running loss
-            running_loss += loss.item()
+    for data in train_loader:
 
-        # print current mean loss after every epoch
-        print(
-            "Epoch {} - Loss: {}".format(
-                epoch,
-                running_loss
-                / ((len(dataset) // batch_size) * dataset.max_length),
-            )
+        encoder_opt.zero_grad()
+        decoder_opt.zero_grad()
+
+        loss = train_step(
+            *data, encoder, decoder, criterion, encode_func, decode_func
         )
-        logging.info(
-            "Epoch {} - Loss: {}".format(
-                epoch,
-                running_loss
-                / ((len(dataset) // batch_size) * dataset.max_length),
+        train_loss += loss
+
+        loss.backward()
+        encoder_opt.step()
+        decoder_opt.step()
+
+    if val_loader is not None:
+        encoder.eval()
+        decoder.eval()
+        val_loss = 0
+        for data in val_loader:
+            val_loss += train_step(
+                *data, encoder, decoder, criterion, encode_func, decode_func
             )
+
+    return train_loss / len(train_loader), val_loss / len(val_loader)
+
+
+def evaluate_model(
+    encoder,
+    decoder,
+    encode_func,
+    decode_func,
+    dataloader,
+    beam_width=3,
+    max_n=2,
+):
+    encoder.eval()
+    decoder.eval()
+
+    bleu = 0
+
+    for data in dataloader:
+        input_tensor, output_tensor = map(lambda x: x.to(device), data)
+
+        sos_index = output_tensor[0, 0]
+        max_length = output_tensor.shape[1] - 1
+
+        best_sequence = decode_beam(
+            input_tensor,
+            encoder,
+            decoder,
+            encode_func,
+            decode_func,
+            beam_width,
+            sos_index,
+            max_length,
         )
+        best_sequence = best_sequence[0][:, 0]
+
+        reference = output_tensor.unsqueeze(dim=1).tolist()
+        candidate = best_sequence.tolist()
+        bleu += bleu_score.corpus_bleu(
+            reference, candidate, weights=[1 / max_n] * max_n
+        )
+
+    return bleu / len(dataloader)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 import torch
 import torch.nn.functional as F
+from torch.utils.data import SubsetRandomSampler
+import numpy as np
 import nltk
 from seq2seq_chat_model.data.prepare_data import (
     replace_digits,
@@ -29,7 +31,14 @@ def tokenize_message(message: str):
     return group
 
 
-def get_encoder_input(question_group: List[List[str]], vocab, max_length, new_token, unk_token, pad_token):
+def get_encoder_input(
+    question_group: List[List[str]],
+    vocab,
+    max_length,
+    new_token,
+    unk_token,
+    pad_token,
+):
     """Transform messages in natural language into encoder-readable input.
 
     Individual messages are connected using the <new> token to symbolize
@@ -43,7 +52,7 @@ def get_encoder_input(question_group: List[List[str]], vocab, max_length, new_to
             of lists of strings.
         vocab (dict): vocabulary which maps string tokens to unique indices.
         max_length (int): the length of the returned messages.
-        new_token (str): string used as new token to indicated the end of an 
+        new_token (str): string used as new token to indicated the end of an
             individual message.
         unk_token (str): string used as unknown token.
         pad_token (str): string used as padding token.
@@ -58,22 +67,29 @@ def get_encoder_input(question_group: List[List[str]], vocab, max_length, new_to
     # replace every token with its unique index or with the <unk> index
     # if it is not in the vocabulary
     question = [
-        vocab[token]
-        if token in vocab
-        else vocab[unk_token]
+        vocab[token] if token in vocab else vocab[unk_token]
         for token in question
     ]
 
     # either cut off long sequences or pad short sequences so that
     # every sequence has length max_length
-    question = question[: max_length] + [vocab[pad_token]] * max(
+    question = question[:max_length] + [vocab[pad_token]] * max(
         max_length - len(question), 0
     )
 
     return torch.tensor(question)
 
 
-def get_decoder_input(answer_group: List[List[str]], vocab, max_length, new_token, unk_token, pad_token, sos_token, eos_token):
+def get_decoder_input(
+    answer_group: List[List[str]],
+    vocab,
+    max_length,
+    new_token,
+    unk_token,
+    pad_token,
+    sos_token,
+    eos_token,
+):
     """Transform messages in natural language into decoder-readable input.
 
     Individual messages are connected using the <new> token to symbolize
@@ -88,7 +104,7 @@ def get_decoder_input(answer_group: List[List[str]], vocab, max_length, new_toke
             of lists of strings.
         vocab (dict): vocabulary which maps string tokens to unique indices.
         max_length (int): the length of the returned messages.
-        new_token (str): string used as new token to indicated the end of an 
+        new_token (str): string used as new token to indicated the end of an
             individual message.
         unk_token (str): string used as unknown token.
         pad_token (str): string used as padding token.
@@ -105,9 +121,7 @@ def get_decoder_input(answer_group: List[List[str]], vocab, max_length, new_toke
     # replace every token with its unique index or with the <unk> index
     # if it is not in the vocabulary
     answer = [
-        vocab[token]
-        if token in vocab
-        else vocab[unk_token]
+        vocab[token] if token in vocab else vocab[unk_token]
         for token in answer
     ]
 
@@ -117,11 +131,11 @@ def get_decoder_input(answer_group: List[List[str]], vocab, max_length, new_toke
         [vocab[sos_token]]
         + answer[: max_length - 2]
         + [vocab[eos_token]]
-        + [vocab[pad_token]]
-        * max(max_length - len(answer) - 2, 0)
+        + [vocab[pad_token]] * max(max_length - len(answer) - 2, 0)
     )
 
     return torch.tensor(answer)
+
 
 def get_encoding_rnn(input_tensor, encoder):
     """Given an input, get encoder sequence from recurrent encoder.
@@ -141,6 +155,7 @@ def get_encoding_rnn(input_tensor, encoder):
 
     return out
 
+
 def get_encoding_trans(input_tensor, encoder):
     """Given an input, get encoder sequence from Transformer-like encoder.
 
@@ -153,6 +168,7 @@ def get_encoding_trans(input_tensor, encoder):
         torch.tensor: output of shape (batch_size, seq_len, hidden_size)
     """
     return encoder(input_tensor)
+
 
 def get_decoding_rnn(target_tensor, enc_outputs, decoder):
     """Given an input, get decoder sequence from recurrent decoder.
@@ -181,7 +197,8 @@ def get_decoding_rnn(target_tensor, enc_outputs, decoder):
 
         dec_outputs.append(dec_output)
 
-    return torch.cat(dec_outputs, dim = 1)
+    return torch.cat(dec_outputs, dim=1)
+
 
 def get_decoding_trans(target_tensor, enc_outputs, decoder):
     """Given an input, get decoder sequence from Transformer-like decoder.
@@ -198,7 +215,48 @@ def get_decoding_trans(target_tensor, enc_outputs, decoder):
     """
     return decoder(target_tensor, enc_outputs)
 
-def decode_beam(input_tensor, encoder, decoder, encoding_func, decoding_func, beam_width, sos_index, num_steps):
+
+def split_dataset(dataset, test_frac, val_frac, seed=None):
+    """Returns two samplers that split the dataset at the given percentile.
+
+    The returned samplers are shuffled.
+
+    Args:
+        dataset (torch.utils.data.Dataset): the dataset to split.
+        percent (float): the percentile at which to split.
+        seed (int, optional): the random seed to use for reproducability.
+    """
+
+    dataset_size = len(dataset)
+    indices = np.arange(start=0, stop=dataset_size)
+    train_test_split = int(test_frac * dataset_size)
+    train_val_split = int((test_frac + val_frac) * dataset_size)
+
+    if seed:
+        np.random.seed(seed)
+    np.random.shuffle(indices)
+
+    test_split = indices[:train_test_split]
+    val_split = indices[train_test_split:train_val_split]
+    train_split = indices[train_val_split:]
+
+    test_sampler = SubsetRandomSampler(test_split)
+    val_sampler = SubsetRandomSampler(val_split)
+    train_sampler = SubsetRandomSampler(train_split)
+
+    return train_sampler, val_sampler, test_sampler
+
+
+def decode_beam(
+    input_tensor,
+    encoder,
+    decoder,
+    encoding_func,
+    decoding_func,
+    beam_width,
+    sos_index,
+    num_steps,
+):
     """[summary]
 
     [extended_summary]
@@ -222,20 +280,24 @@ def decode_beam(input_tensor, encoder, decoder, encoding_func, decoding_func, be
         # get encoder sequence
         enc_outputs = encoding_func(input_tensor, encoder)
         # first decoder input is the sos token (seq len = 1)
-        dec_in = torch.tensor([sos_index] * batch_size).view(batch_size, 1).to(device)
+        dec_in = (
+            torch.tensor([sos_index] * batch_size)
+            .view(batch_size, 1)
+            .to(device)
+        )
         # get the decoder predictions
         dec_out = decoding_func(dec_in, enc_outputs, decoder)
 
         # get first top predictions
-        top_k = torch.topk(F.softmax(dec_out, dim = -1), k = beam_width, dim = -1)
+        top_k = torch.topk(F.softmax(dec_out, dim=-1), k=beam_width, dim=-1)
 
         # top len 1 sequences of shape (batch, beam_width, 1)
         top_seqs = top_k[1].transpose(1, 2)
         # corresponding log probs of shape (batch, beam_width)
-        top_log_probs =  torch.log(top_k[0]).squeeze(dim = 1)
+        top_log_probs = torch.log(top_k[0]).squeeze(dim=1)
 
         # encoder outputs stay the same across beams
-        enc_outputs = enc_outputs.repeat_interleave(repeats = beam_width, dim = 0)  
+        enc_outputs = enc_outputs.repeat_interleave(repeats=beam_width, dim=0)
 
         # do num_steps decoding steps
         for i in range(num_steps - 1):
@@ -245,16 +307,18 @@ def decode_beam(input_tensor, encoder, decoder, encoding_func, decoding_func, be
             dec_in = top_seqs.view(batch_size * beam_width, -1)
             # pass the current top sequences to the decoder
             dec_out = decoding_func(dec_in, enc_outputs, decoder)
- 
+
             # for every batch and beam, get the next top k predictions
-            probs, tokens = torch.topk(F.softmax(dec_out[:, -1], dim = -1), k = beam_width, dim = -1)
+            probs, tokens = torch.topk(
+                F.softmax(dec_out[:, -1], dim=-1), k=beam_width, dim=-1
+            )
             # separate batch and beam dimension and merge the two beam dimensions instead
             # (for every previous beam, there are now k new beams)
             tokens = tokens.view(batch_size, beam_width * beam_width, 1)
             # for every previous beam, repeat the corresponding sequence for beam_width times
-            seqs = top_seqs.repeat_interleave(repeats = beam_width, dim = 1)
+            seqs = top_seqs.repeat_interleave(repeats=beam_width, dim=1)
             # append the new beam predictions to the corresponding previous beam sequence
-            seqs = torch.cat([seqs, tokens], dim = -1)
+            seqs = torch.cat([seqs, tokens], dim=-1)
 
             # separate batch and previous beam dimension
             # (for every previous beam prob, there are now k new beam probs)
@@ -265,12 +329,16 @@ def decode_beam(input_tensor, encoder, decoder, encoding_func, decoding_func, be
             # merge the beam dimensions
             log_probs = log_probs.view(batch_size, beam_width * beam_width)
             # get the new k top beams
-            top_log_probs, top_indices = torch.topk(log_probs, k = beam_width, dim = -1)
+            top_log_probs, top_indices = torch.topk(
+                log_probs, k=beam_width, dim=-1
+            )
             # expand indices to match the sequence dimensions
-            top_indices = top_indices[:, :, None].expand(-1, -1, seqs.shape[-1])
-            
+            top_indices = top_indices[:, :, None].expand(
+                -1, -1, seqs.shape[-1]
+            )
+
             # select the new top sequences as the top indices of the probabilities
-            top_seqs = seqs.gather(dim = 1, index = top_indices)
+            top_seqs = seqs.gather(dim=1, index=top_indices)
 
     # convert log probs to probs
     top_probs = torch.exp(top_log_probs)

@@ -16,7 +16,7 @@ class AttentionDecoder(nn.Module, ABC):
         enc_hidden_size (int): hidden size of the coupled encoder
         output_size (int): vocabulary size to project to
         num_layers (int): number of decoder layers
-        attention_module (attention.Attention): attention module to 
+        attention_module (attention.Attention): attention module to
             use for attention mechanism
         dec_seq_len (int): length of decoder input sequence
         enc_seq_len (int): length of encoder output sequences
@@ -25,7 +25,7 @@ class AttentionDecoder(nn.Module, ABC):
         d_v (int): dimensionality of projected values. Defaults
             to ``dec_hidden_size`` / ``n_heads``.
         n_heads (int): number of attention heads. Defaults to 1.
-        pretrained_emb (torch.nn.Embedding): embedding layer to 
+        pretrained_emb (torch.nn.Embedding): embedding layer to
             use for initialization. If ``None``, embeddings are
             initialized randomly.
     """
@@ -86,7 +86,7 @@ class LSTMAttentionDecoder(AttentionDecoder):
         enc_hidden_size (int): hidden size of the coupled encoder
         output_size (int): vocabulary size to project to
         num_layers (int): number of decoder layers
-        attention_module (attention.Attention): attention module to 
+        attention_module (attention.Attention): attention module to
             use for attention mechanism
         dec_seq_len (int): length of decoder input sequence
         enc_seq_len (int): length of encoder output sequences
@@ -95,7 +95,7 @@ class LSTMAttentionDecoder(AttentionDecoder):
         d_v (int): dimensionality of projected values. Defaults
             to ``dec_hidden_size`` / ``n_heads``.
         n_heads (int): number of attention heads. Defaults to 1.
-        pretrained_emb (torch.nn.Embedding): embedding layer to 
+        pretrained_emb (torch.nn.Embedding): embedding layer to
             use for initialization. If ``None``, embeddings are
             initialized randomly.
     """
@@ -207,7 +207,7 @@ class TransformerDecoderBlock(nn.Module):
     Attributes:
         hidden_size (int): hidden size
         ff_size (int): hidden layer size of feed forward net
-        attention_module (attention.Attention): attention module to 
+        attention_module (attention.Attention): attention module to
             use for attention mechanism
         dec_seq_len (int): length of decoder input sequence
         enc_seq_len (int): length of encoder output sequences
@@ -223,9 +223,9 @@ class TransformerDecoderBlock(nn.Module):
         hidden_size,
         ff_size,
         attention_module,
-        d_k = None,
-        d_v = None,
-        n_heads = 1,
+        d_k=None,
+        d_v=None,
+        n_heads=1,
     ):
         super(TransformerDecoderBlock, self).__init__()
 
@@ -288,7 +288,7 @@ class TransformerDecoder(AttentionDecoder):
         enc_hidden_size (int): hidden size of the coupled encoder
         output_size (int): vocabulary size to project to
         num_layers (int): number of decoder layers
-        attention_module (attention.Attention): attention module to 
+        attention_module (attention.Attention): attention module to
             use for attention mechanism
         dec_seq_len (int): length of decoder input sequence
         enc_seq_len (int): length of encoder output sequences
@@ -299,7 +299,7 @@ class TransformerDecoder(AttentionDecoder):
         n_heads (int, optional): number of attention heads. Defaults to 1.
         ff_size (int, optional): hidden layer size of feed forward net.
             Defaults to ``dec_hidden_size`` * 4.
-        pretrained_emb (torch.nn.Embedding, optional): embedding layer to 
+        pretrained_emb (torch.nn.Embedding, optional): embedding layer to
             use for initialization. If ``None``, embeddings are
             initialized randomly.
     """
